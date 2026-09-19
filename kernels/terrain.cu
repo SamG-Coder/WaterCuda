@@ -97,9 +97,9 @@ __device__ float3 wetSandSheen(float3 diffuse,float3 p,float3 n,float3 rd,float3
  float a2=.20f*.20f,den=nh*nh*(a2-1)+1,D=a2/(PI*den*den);
  float gv=2*nv/(nv+sqrtf(a2+(1-a2)*nv*nv)+.0001f),gl=2*nl/(nl+sqrtf(a2+(1-a2)*nl*nl)+.0001f);
  float directF=.02f+.98f*powf(1-vh,5),viewF=.02f+.98f*powf(1-nv,5);
- float3 rr=rd-n*(2*dot3(rd,n));float3 environment=sky(norm3(make_float3(rr.x,.06f,rr.z)),sun);
+ float3 rr=rd-n*(2*dot3(rd,n));float3 environment=skyEnvironment(norm3(make_float3(rr.x,.06f,rr.z)),sun);
  float specular=D*gv*gl*directF/(4*fmaxf(nv,.05f));
- return mix3(diffuse,environment,wet*viewF*.65f)+make_float3(1,.85f,.65f)*(specular*wet*shadow*1.3f);
+ return mix3(diffuse,environment,wet*viewF*.65f)+sunRadiance(sun)*(specular*wet*shadow*.75f);
 }
 __device__ float3 landColor(float3 p,float3 n,float3 sun,const int* Origin,float fp){
  Island a=describeIsland((int)floorf(p.x/CELL),(int)floorf(p.z/CELL),Origin);float u=p.x-a.x,v=p.z-a.z;
@@ -135,7 +135,8 @@ __device__ float3 landColor(float3 p,float3 n,float3 sun,const int* Origin,float
  }
 
  float wet=shoreWetness(p,a,fp);col=col*(1-wet*0.28f);
- float light=0.27f+0.73f*sat(dot3(n,sun));return col*light+make_float3(0.035f,0.065f,0.075f)*(1-n.y)*0.5f;
+ float nl=sat(dot3(n,sun));float3 ambient=mix3(make_float3(.14f,.17f,.19f),make_float3(.22f,.26f,.28f),sat(n.y));
+ return col*(ambient+sunRadiance(sun)*(nl*.30f));
 }
 __device__ float terrainShadow(float3 p,float3 sun,const int* Origin,float fp){
  float visibility=1,t=8;

@@ -1,5 +1,7 @@
 export const UNITS=['common','terrain','ocean','render'];
 export const SPECS=[
+ {entry:'cacheOceanSpectrum',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','ocean']},
+ {entry:'advanceOceanSpectrum',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','ocean']},
  {entry:'seedOcean',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','ocean']},
  {entry:'oceanFft',file:'ocean',workgroupSize:[128,1,1],dependencies:['common','ocean']},
  {entry:'packOcean',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','ocean']},
