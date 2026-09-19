@@ -26,6 +26,20 @@ std::vector<float> cpuOcean(){
  return waves;
 }
 int main(){
+ // Two-way bed lighting must dim monotonically and lose red before blue.
+ {auto zero=waterTransmission(0);if(zero.x!=1||zero.y!=1||zero.z!=1)return 15;
+  if(fabsf(sunWaterPath(10,1)-10)>.0001f||sunWaterPath(10,0)>15.2f)return 20;
+  if(bedDetailWeight(45,45,1)!=0)return 21;
+  float previous=1;
+  for(int d=1;d<=200;d++){
+   auto t=waterTransmission((float)d);if(t.x<0||t.x>t.y||t.y>t.z||t.z>previous)return 16;previous=t.z;
+   float high=bedDetailWeight((float)d,(float)d,1),low=bedDetailWeight((float)d,(float)d,.1f);
+   if(!std::isfinite(low)||low>high||low<0||high>1)return 17;
+  }
+  if(bedDetailWeight(60,45,.6f)!=0||bedDetailWeight(2,1,.6f)<.99f)return 18;
+  for(int i=0;i<2000;i++){float d=i*.05f;if(fabsf(bedDetailWeight(d,d,.6f)-bedDetailWeight(d+.001f,d+.001f,.6f))>.001f)return 19;}
+  std::cout<<"Water optics: attenuation ordering, solar depth, deep-detail cutoff and continuity passed\n";
+ }
  // Odd-sized reflection targets exercise the final row/column and padded dispatch.
  {const int width=5,height=3,count=width*height*4;float c[16]={0,600,0,0,-.6f,0,1,-.7f,.7f,1,0,1};int o[4]={0,0,42,0};
   std::vector<float> hit(count,0),surface(count,0),ref(count+8,-999);
