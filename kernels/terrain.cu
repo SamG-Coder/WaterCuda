@@ -65,7 +65,12 @@ __device__ float traceLand(float3 ro,float3 rd,const int* Origin,float limit,flo
    // The longest ray through a 3000 x 518 x 3000 m island box is under 4275 m.
    // A one-metre minimum step and 4352 iterations cover the entire box, including
    // rays nearly parallel to a hillside; never silently drop the rest of the island.
-   for(int j=0;j<4352;j++){
+   // The per-ray span gives a tighter runtime trip count. One extra sample keeps
+   // inclusive endpoints and float rounding safe; the minimum advance remains 1 m.
+   // Keep the original 4352 hard cap, without asking drivers to optimize a fixed
+   // multi-thousand-iteration loop containing the complete terrain grammar.
+   int stepBudget=(int)fminf(4352.0f,fmaxf(0.0f,ceilf(stop-s)+2.0f));
+   for(int j=0;j<stepBudget;j++){
     if(s>stop)break;float3 q=ro+rd*s;float fp=fmaxf(0.2f,s*cone);float gap=q.y-islandHeight(q.x,q.z,a,fp);
     if(gap<fmaxf(0.05f,fp*0.15f)){float lo=previous,hi=s;for(int k=0;k<7;k++){float mid=(lo+hi)*0.5f;float3 m=ro+rd*mid;if(m.y>islandHeight(m.x,m.z,a,fmaxf(0.2f,mid*cone)))lo=mid;else hi=mid;}return (lo+hi)*0.5f;}
     previous=s;s+=fmaxf(1.0f,gap/fmaxf(raySlope,.001f));
