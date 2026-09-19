@@ -11,6 +11,26 @@ __device__ Island describeIsland(int cx,int cz,const int* Origin){
  if(hash2(gx,gz,seed+6)<0.28f)a.peak=0;
  return a;
 }
+// Sand deposition follows the existing depth contours in selected coastal sectors.
+// It stays inside the island envelope and vanishes smoothly at both depth limits.
+__device__ float coastalRelief(float base,float mx,float mz,Island a,float fp){
+ if(base<=-26||base>=22)return 0;
+ float along=mx*a.c+mz*a.s,cross=-mx*a.s+mz*a.c;
+ float sector=smoothf(.40f,.66f,noise2(along/410+a.seed,cross/410+19));
+ float bend=(noise2(along/155+a.seed,cross/230)-.5f)*5;
+ float bar=expf(-powf((base+9.5f+bend)/3.2f,2));
+ // Breaks in the deposited ridge leave channels into the shallow lagoon.
+ float channel=smoothf(.30f,.52f,noise2(along/85+27,cross/180+a.seed));
+ float spit=smoothf(.64f,.82f,noise2(along/310+71,cross/310+a.seed));
+ float deposition=(32*bar*channel+spit*5*expf(-powf((base+2)/5,2)))*sector;
+ // Offshore sediment forms low bars rather than a second mountain ridge.
+ float capacity=fmaxf(0,1.8f-base);
+ deposition=capacity*(1-expf(-deposition/fmaxf(.01f,capacity)));
+ float dunes=0;
+ if(base>0&&fp<12){float ridge=.5f+.5f*sinf(along*.075f+noise2(along/65,cross/65+a.seed)*4);
+  dunes=3.2f*ridge*ridge*smoothf(0,4,base)*(1-smoothf(10,22,base))*sector*weight(fp,.075f);}
+ return deposition*smoothf(-26,-18,base)*(1-smoothf(9,20,base))+dunes;
+}
 __device__ float islandHeight(float x,float z,Island a,float fp){
  if(a.peak==0)return -45;
  float px=(x-a.x)/a.radius,pz=(z-a.z)/a.radius;
@@ -26,14 +46,15 @@ __device__ float islandHeight(float x,float z,Island a,float fp){
  float warpZ=(noise2(mx/650+31,mz/650+a.seed)-.5f)*150;
  float ridge=1-fabsf(noise2((mx+warpX)/310+a.seed,(mz+warpZ)/310)*2-1);
  float base=-45+powf(shape,1.7f)*(a.peak*(.48f+.52f*ridge)+45);
+ float coastDetail=coastalRelief(base,mx,mz,a,fp);
  // Inland relief is exactly zero here; avoid three unused noise evaluations.
- if(base<=2)return base;
+ if(base<=2)return base+coastDetail;
  float detail=0,w1=weight(fp,1.0f/95),w2=weight(fp,1.0f/31),w3=weight(fp,1.0f/9);
  if(w1>0)detail+=(noise2((mx+warpX)/95+a.seed,(mz+warpZ)/95)-.5f)*40*w1;
  if(w2>0)detail+=(noise2(mx/31+a.seed,mz/31)-.5f)*13*w2;
  if(w3>0)detail+=(noise2(mx/9+a.seed,mz/9)-.5f)*3*w3;
  // Preserve the submerged shelf and beach; break up inland silhouettes and normals.
- return base+detail*smoothf(2,32,base);
+ return base+detail*smoothf(2,32,base)+coastDetail;
 
 }
 __device__ float ground(float x,float z,const int* Origin,float fp){return islandHeight(x,z,describeIsland((int)floorf(x/CELL),(int)floorf(z/CELL),Origin),fp);}
