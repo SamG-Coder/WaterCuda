@@ -29,6 +29,7 @@ jobs:
       - name: Actual CUDA pixels and cached GPU spectrum regression
         env:
           CW_GPU_BACKEND: lavapipe
+          DEBUG: pw:browser
         run: |
           export VK_DRIVER_FILES=$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)
           test -n "$VK_DRIVER_FILES"

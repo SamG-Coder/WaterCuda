@@ -13,7 +13,7 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser,page;const errors=[],tests=[],requests=[],diagnostics=[],backend=process.env.CW_GPU_BACKEND||(process.env.CW_SOFTWARE_GPU==='0'?'hardware':'swiftshader'),software=backend!=='hardware';
 try{
  assert.ok(['hardware','swiftshader','lavapipe'].includes(backend),'Unknown GPU backend');
- const args=backend==='lavapipe'?['--enable-gpu','--enable-unsafe-webgpu','--use-angle=vulkan','--use-vulkan=native','--enable-features=Vulkan','--disable-vulkan-surface']:backend==='swiftshader'?['--enable-unsafe-webgpu','--use-angle=swiftshader','--use-webgpu-adapter=swiftshader']:[];
+ const args=backend==='lavapipe'?['--enable-gpu','--ignore-gpu-blocklist','--enable-unsafe-webgpu','--use-angle=vulkan','--use-vulkan=native','--enable-features=Vulkan','--disable-vulkan-surface']:backend==='swiftshader'?['--enable-unsafe-webgpu','--use-angle=swiftshader','--use-webgpu-adapter=swiftshader']:[];
  const options={channel:'chromium',headless:true,args};
  if(process.env.CHROMIUM_EXECUTABLE){options.executablePath=process.env.CHROMIUM_EXECUTABLE;delete options.channel;}
  browser=await chromium.launch(options);page=await browser.newPage({viewport:{width:768,height:512}});page.setDefaultTimeout(15000);
@@ -21,6 +21,16 @@ try{
  page.on('request',req=>requests.push(req.url()));await page.route('https://**',r=>r.abort());
  // This only observes native API calls in the regression page; production modules
  // and driver validation remain unchanged. A timeout must identify its kernel.
+ await page.addInitScript(expected=>{
+  const original=GPU.prototype.requestAdapter;
+  GPU.prototype.requestAdapter=async function(options){
+   const adapter=await original.call(this,options),info=adapter?.info;
+   const actual={vendor:info?.vendor,architecture:info?.architecture,device:info?.device,description:info?.description};
+   console.log('COASTAL_GPU '+JSON.stringify({phase:'adapter',expected,actual}));
+   if(expected==='lavapipe'&&!/llvmpipe|lavapipe/i.test(JSON.stringify(actual)))throw Error('Mesa Vulkan was requested but Chromium selected '+JSON.stringify(actual));
+   return adapter;
+  };
+ },backend);
  await page.addInitScript(()=>{
   if(!globalThis.GPUDevice)return;
   const original=GPUDevice.prototype.createComputePipelineAsync;
