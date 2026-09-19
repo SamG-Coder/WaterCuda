@@ -1,5 +1,7 @@
 export const UNITS=['common','terrain','shrubs','ocean','render'];
 export const SPECS=[
+ {entry:'generateShrubAtlas',file:'shrubs',workgroupSize:[8,8,1],dependencies:['common','terrain','shrubs']},
+ {entry:'mipShrubAtlas',file:'shrubs',workgroupSize:[8,8,1],dependencies:['common','terrain','shrubs']},
  {entry:'cacheShrubs',file:'shrubs',workgroupSize:[8,8,1],dependencies:['common','terrain','shrubs']},
  {entry:'cacheOceanSpectrum',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','ocean']},
  {entry:'advanceOceanSpectrum',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','ocean']},

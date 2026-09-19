@@ -8,7 +8,7 @@
 #include "shading-reference.hpp"
 #include "cpu-ocean.hpp"
 int main(){
- std::vector<float> emptyShrubs(16388,0);
+ std::vector<float> emptyShrubs(SHRUB_FLOATS,0);
  // Shared Fresnel/Smith optics, checked independently of the shader branches.
  {float previous=1;
   for(int i=0;i<=1000;i++){float mu=i/1000.0f,f=waterFresnel(mu);double expected=.0204+.9796*std::pow(1.0-mu,5);
