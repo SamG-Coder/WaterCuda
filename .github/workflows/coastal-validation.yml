@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   validate:
-    runs-on: ubuntu-24.04
+    runs-on: windows-2025
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -17,25 +17,20 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      - name: Install native test compiler
+        run: choco install mingw --no-progress -y
       - run: npm run test:native
       - name: Install optional browser validation tools
         run: npm install --no-save --package-lock=false playwright@1.63.0
       - run: npx playwright install --with-deps chromium
-      - name: Install Mesa software Vulkan
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
-          vulkaninfo --summary
       - name: Actual CUDA pixels and cached GPU spectrum regression
         env:
-          CW_GPU_BACKEND: lavapipe
+          CW_GPU_BACKEND: hardware
           DEBUG: pw:browser
-        run: |
-          export VK_DRIVER_FILES=$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)
-          test -n "$VK_DRIVER_FILES"
-          npm run test:browser
+        run: npm run test:browser
       - name: Reproducible source snapshot
         if: always()
+        shell: bash
         run: git archive --format=tar HEAD | gzip > water-source.tar.gz
       - uses: actions/upload-artifact@v4
         if: always()

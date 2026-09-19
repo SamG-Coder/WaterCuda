@@ -13,7 +13,7 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser,page;const errors=[],tests=[],requests=[],diagnostics=[],backend=process.env.CW_GPU_BACKEND||(process.env.CW_SOFTWARE_GPU==='0'?'hardware':'swiftshader'),software=backend!=='hardware';
 try{
  assert.ok(['hardware','swiftshader','lavapipe'].includes(backend),'Unknown GPU backend');
- const args=backend==='lavapipe'?['--enable-gpu','--ignore-gpu-blocklist','--enable-unsafe-webgpu','--use-angle=vulkan','--use-vulkan=native','--enable-features=Vulkan','--disable-vulkan-surface']:backend==='swiftshader'?['--enable-unsafe-webgpu','--use-angle=swiftshader','--use-webgpu-adapter=swiftshader']:[];
+ const args=backend==='lavapipe'?['--enable-gpu','--ignore-gpu-blocklist','--enable-unsafe-webgpu','--use-angle=vulkan','--use-vulkan=native','--enable-features=Vulkan','--disable-vulkan-surface']:backend==='swiftshader'?['--enable-unsafe-webgpu','--use-angle=swiftshader','--use-webgpu-adapter=swiftshader']:['--enable-gpu','--ignore-gpu-blocklist','--enable-unsafe-webgpu'];
  const options={channel:'chromium',headless:true,args};
  if(process.env.CHROMIUM_EXECUTABLE){options.executablePath=process.env.CHROMIUM_EXECUTABLE;delete options.channel;}
  browser=await chromium.launch(options);page=await browser.newPage({viewport:{width:768,height:512}});page.setDefaultTimeout(15000);
