@@ -27,6 +27,32 @@ std::vector<float> cpuOcean(){
  return waves;
 }
 int main(){
+ // Reflection filtering preserves constant fields and rejects unrelated surfaces.
+ {std::vector<float> hit(36,0),surface(36,0),reflection(36,0);
+  for(int i=0;i<9;i++){hit[i*4]=100;hit[i*4+1]=2;surface[i*4+1]=1;reflection[i*4]=.2f;reflection[i*4+1]=.3f;reflection[i*4+2]=.4f;reflection[i*4+3]=100;}
+  for(int y=0;y<3;y++)for(int x=0;x<3;x++){auto c=filteredReflection(x,y,3,3,hit.data(),surface.data(),reflection.data());if(fabsf(c.x-.2f)>.00001f||fabsf(c.z-.4f)>.00001f)return 25;}
+  reflection[16]=1;auto c=filteredReflection(1,1,3,3,hit.data(),surface.data(),reflection.data());if(c.x<=.2f||c.x>=1)return 26;
+  reflection[16]=.2f;
+  for(int mode=0;mode<3;mode++){
+   for(int i=0;i<9;i++){if(i==4)continue;reflection[i*4]=100;hit[i*4+1]=mode==0?1:2;hit[i*4]=mode==1?1000:100;surface[i*4+1]=mode==2?-1:1;}
+   auto out=filteredReflection(1,1,3,3,hit.data(),surface.data(),reflection.data());if(fabsf(out.x-.2f)>.00001f)return 27;
+  }
+  std::cout<<"Reflection filter: constant preservation, impulse smoothing and edge rejection passed\n";
+ }
+ // A linear field must sample at the same physical coordinate at every mip.
+ // Explicit averaged values are an independent oracle for mip centre registration.
+ {std::vector<float> testWaves(OCEAN_TEXELS*4,0);
+  for(int level=0;level<=8;level++){int n=256>>level,step=1<<level;
+   for(int z=0;z<n;z++)for(int x=0;x<n;x++)testWaves[(mipOffset(level)+z*n+x)*4]=x*step+(step-1)*.5f+2*(z*step+(step-1)*.5f);
+  }
+  for(int level=0;level<8;level++){
+   auto value=oceanSample(128.25f/256,90.75f/256,0,level,testWaves.data());
+   if(fabsf(value.x-309.75f)>.0001f)return 23;
+   auto left=oceanSample(-.00001f,.37f,0,level,testWaves.data()),right=oceanSample(.99999f,.37f,0,level,testWaves.data());
+   if(fabsf(left.x-right.x)>.002f)return 24;
+  }
+  std::cout<<"Wave mip levels: physical sample centres and periodic wrapping passed\n";
+ }
  // Compare optimized terrain against the frozen previous implementation.
  for(int seed:{42,884,12345}){
   int o[4]={0,0,seed,0};

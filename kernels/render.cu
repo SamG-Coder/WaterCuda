@@ -19,6 +19,24 @@ __global__ void reflectOcean(const float* C,const int* Origin,const float* Hit,c
  if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 land=landColor(p,groundNormal(p,Origin,fp),sun,Origin,fp);float fade=fmaxf(smoothf(4800,6500,Hit[b]),1-expf(-rt*.00008f));reflected=mix3(land,reflected,fade);}
  Reflection[o]=reflected.x;Reflection[o+1]=reflected.y;Reflection[o+2]=reflected.z;Reflection[o+3]=Hit[b];
 }
+// Small same-frame reconstruction filter; no temporal history or extra ray queries.
+// Keep land/sky, separate surfaces and differently oriented wave faces out of the sum.
+__device__ float3 filteredReflection(int x,int y,int width,int height,const float* Hit,const float* Surface,const float* Reflection){
+ int b=(y*width+x)*4;float t=Hit[b];float3 centre=make_float3(Reflection[b],Reflection[b+1],Reflection[b+2]);
+ float3 n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),sum=centre*4;float total=4;
+ for(int dy=-1;dy<=1;dy++)for(int dx=-1;dx<=1;dx++){
+  if(dx==0&&dy==0)continue;int xx=x+dx,yy=y+dy;
+  if(xx<0||yy<0||xx>=width||yy>=height)continue;int j=(yy*width+xx)*4;
+  if(Hit[j+1]!=2||Reflection[j+3]<=0)continue;
+  float3 nn=make_float3(Surface[j],Surface[j+1],Surface[j+2]);
+  float depthWeight=1-smoothf(0,fmaxf(2,t*.025f),fabsf(Hit[j]-t));
+  float normalWeight=smoothf(.85f,.995f,dot3(n,nn));
+  float spatial=(dx==0||dy==0)?2.0f:1.0f,w=spatial*depthWeight*normalWeight;
+  sum=sum+make_float3(Reflection[j],Reflection[j+1],Reflection[j+2])*w;total+=w;
+ }
+ float strength=clampf(.45f+sqrtf(fmaxf(0,Hit[b+3]))*2,.45f,.75f);
+ return mix3(centre,sum/total,strength);
+}
 // Integer world lattice keeps foam fixed to the world during origin rebasing.
 // Wavelengths divide CELL exactly; integer hashing never sees huge float positions.
 __device__ float foamNoise(float x,float z,int wavelength,const int* Origin){
@@ -65,7 +83,7 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Hit,con
  if(material==1)color=landColor(p,n,sun,Origin,fp)*terrainShadow(p+n*.4f,sun,Origin,fp);
  if(material==2){
   float nv=sat(-dot3(n,rd)),fresnel=.0204f+.9796f*powf(1-nv,5);float3 rr=rd-n*(2*dot3(rd,n)),reflected=sky(rr,sun);
-  if(C[9]>.5f&&t<6500){if(Reflection[b+3]>0)reflected=make_float3(Reflection[b],Reflection[b+1],Reflection[b+2]);}
+  if(C[9]>.5f&&t<6500){if(Reflection[b+3]>0)reflected=filteredReflection(x,y,width,height,Hit,Surface,Reflection);}
   float depth=Surface[b+3],eta=.75019f,k=1-eta*eta*(1-nv*nv);float3 refracted=rd*eta+n*(eta*nv-sqrtf(fmaxf(0,k)));
   float travel=fminf(200,depth/fmaxf(.15f,-refracted.y)),initialTravel=travel;
   float detail=bedDetailWeight(travel,depth,sun.y);

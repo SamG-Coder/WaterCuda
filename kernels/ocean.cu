@@ -53,7 +53,11 @@ __global__ void oceanMip(float* Waves,int level){
  for(int c=0;c<4;c++)Waves[dst+c]=(Waves[src+c]+Waves[src+4+c]+Waves[src+n*8+c]+Waves[src+n*8+4+c])*.25f;
 }
 __device__ float4 oceanSample(float u,float v,int layer,int level,const float* Waves){
- int n=256>>level;float x=fractf(u)*(float)n,z=fractf(v)*(float)n;int ix=(int)floorf(x),iz=(int)floorf(z),jx=(ix+1)%n,jz=(iz+1)%n;
+ // A level-L texel averages 2^L base samples, centred at (2^L-1)/2.
+ // Register every mip to the same world positions before trilinear blending.
+ int n=256>>level;float centre=.5f*(1-(float)n/256);
+ float x=fractf(u)*(float)n-centre,z=fractf(v)*(float)n-centre;
+ int ix=((int)floorf(x)+n)%n,iz=((int)floorf(z)+n)%n,jx=(ix+1)%n,jz=(iz+1)%n;
  float fx=fractf(x),fz=fractf(z);int start=layer*OCEAN_TEXELS+mipOffset(level),a=(start+iz*n+ix)*4,b=(start+iz*n+jx)*4,c=(start+jz*n+ix)*4,d=(start+jz*n+jx)*4;
  float h=lerpf(lerpf(Waves[a],Waves[b],fx),lerpf(Waves[c],Waves[d],fx),fz);
  float dx=lerpf(lerpf(Waves[a+1],Waves[b+1],fx),lerpf(Waves[c+1],Waves[d+1],fx),fz);
