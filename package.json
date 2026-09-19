@@ -1,6 +1,19 @@
 {
-  "name": "water-cuda", "version": "0.1.0", "private": true, "type": "module",
+  "name": "water-cuda",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
   "description": "Procedural infinite archipelago, authored in CUDA and rendered with WebGPU.",
-  "scripts": {"build":"node tools/compile.mjs", "prestart":"npm run build", "start":"node server.mjs 8090", "test":"npm run build && node --test tests/*.test.mjs", "test:native":"node tools/native-test.mjs"},
-  "engines":{"node":">=20"}, "license":"MIT"
+  "scripts": {
+    "build": "node tools/compile.mjs",
+    "prestart": "npm run build",
+    "start": "node server.mjs 8090",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "test:native": "node tools/native-test.mjs",
+    "test:browser": "node tools/coastal-browser-test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
 }

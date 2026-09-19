@@ -4,8 +4,8 @@ export class Engine{
  async init(canvas,progress){
   this.errors=[];this.runtime=await GpuRuntime.create({onError:e=>{this.errors.push(String(e.message||e));this.onError?.(e);}});
   this.device=this.runtime.device;this.canvas=canvas;this.context=canvas.getContext('webgpu');
-  this.loader=new KernelLoader(this.runtime,event=>progress(event.message));
-  this.kernels={};for(const name of ['cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','tracePrimary','reflectOcean','shadeOcean'])this.kernels[name]=await this.loader.load(name);
+  this.loader=new KernelLoader(this.runtime,event=>progress(event.entry+' · '+event.message));
+  this.kernels={};await Promise.all(['cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','tracePrimary','reflectOcean','shadeOcean'].map(async name=>{this.kernels[name]=await this.loader.load(name);}));
   this.camera=this.runtime.createBuffer(64,{label:'Camera and ocean controls'});
   this.origin=this.runtime.createBuffer(16,{label:'Integer world origin and seed'});
   this.waves=this.runtime.createBuffer(87381*4*4*4,{label:'Four spectral cascades with mipmaps'});

@@ -13,3 +13,7 @@ artifacts/
 .city-shader-cache/
 .DS_Store
 Thumbs.db
+
+.native/
+reports/
+water-source.tar.gz

@@ -5,29 +5,23 @@
 #include "../kernels/ocean.cu"
 #include "../kernels/render.cu"
 #include "shading-reference.hpp"
-#include <complex>
-#include <iomanip>
-// Independent CPU complex transform, compared with GPU samples by the browser checks.
-void cpuInverse(std::vector<std::complex<double>>& a){
- for(int i=1,j=0;i<256;i++){int bit=128;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j)std::swap(a[i],a[j]);}
- for(int n=2;n<=256;n*=2){auto root=std::polar(1.0,2*3.141592653589793/n);for(int base=0;base<256;base+=n){std::complex<double>w=1;for(int j=0;j<n/2;j++){auto u=a[base+j],v=a[base+j+n/2]*w;a[base+j]=u+v;a[base+j+n/2]=u-v;w*=root;}}}
-}
-std::vector<float> cpuOcean(){
- std::vector<float2> spatial(4*65536);std::vector<std::complex<double>> line(256);
- for(int layer=0;layer<4;layer++)for(int y=0;y<256;y++)for(int x=0;x<256;x++)spatial[layer*65536+y*256+x]=evolveSpectrum(x,y,layer,3,1,42);
- for(int axis=0;axis<2;axis++)for(int layer=0;layer<4;layer++)for(int row=0;row<256;row++){
-  for(int i=0;i<256;i++){int ix=layer*65536+(axis==0?row*256+i:i*256+row);line[i]={spatial[ix].x,spatial[ix].y};}
-  cpuInverse(line);for(int i=0;i<256;i++){int ix=layer*65536+(axis==0?row*256+i:i*256+row);spatial[ix]={(float)line[i].real(),(float)line[i].imag()};}
- }
- double sum=0;float maxH=0,maxImag=0;for(const auto&v:spatial){sum+=v.x*v.x;maxH=fmaxf(maxH,fabsf(v.x));maxImag=fmaxf(maxImag,fabsf(v.y));}
- std::cout<<"Spectral ocean: cascade RMS="<<sqrt(sum/spatial.size())<<", peak="<<maxH<<", imaginary residual="<<maxImag<<"\n";
- if(maxImag>.0001f||maxH<.1f||!std::isfinite(maxH))throw std::runtime_error("Invalid Fourier ocean");
- std::vector<float> waves(4*OCEAN_TEXELS*4);blockDim={1,1,1};
- for(int layer=0;layer<4;layer++){blockIdx={0,0,(unsigned)layer};for(int y=0;y<256;y++)for(int x=0;x<256;x++){threadIdx={(unsigned)x,(unsigned)y,0};packOcean(spatial.data(),waves.data());}}
- for(int level=1;level<=8;level++){int n=256>>level;for(int layer=0;layer<4;layer++){blockIdx={0,0,(unsigned)layer};for(int y=0;y<n;y++)for(int x=0;x<n;x++){threadIdx={(unsigned)x,(unsigned)y,0};oceanMip(waves.data(),level);}}}
- return waves;
-}
+#include "cpu-ocean.hpp"
 int main(){
+ // Shared Fresnel/Smith optics, checked independently of the shader branches.
+ {float previous=1;
+  for(int i=0;i<=1000;i++){float mu=i/1000.0f,f=waterFresnel(mu);double expected=.0204+.9796*std::pow(1.0-mu,5);
+   if(fabs(f-expected)>2e-7||f>previous+1e-7||f<.02039f||f>1.00001f)return 40;previous=f;}
+  for(int i=0;i<1000;i++){float3 n=norm3(make_float3((i%19)*.07f,1,(i%13)*.03f)),rd=norm3(make_float3(.2f,-.0001f-i*.001f,1)),sun=norm3(make_float3(.3f,.0001f+(i%100)*.01f,.7f));
+   float lobe=waterSunLobe(n,rd,sun,(i%17)*.004f,.25f+(i%90)*.025f);
+   if(!std::isfinite(lobe)||lobe<0)return 41;
+   if(waterSunLobe(make_float3(0,1,0),rd,make_float3(0,-1,0),0,1)!=0)return 42;
+  }
+  float3 sun=norm3(make_float3(.2f,.2f,1));auto visible=sky(sun,sun),environment=skyEnvironment(sun,sun);
+  if(visible.x<=environment.x+1)return 43;
+  auto day=sunRadiance(norm3(make_float3(1,1,0))),low=sunRadiance(norm3(make_float3(1,.12f,0)));
+  if(low.x/low.z<=day.x/day.z)return 44;
+  std::cout<<"Optics: 1001 Fresnel reference comparisons, 1000 finite Smith lobes, no backlight and no double solar disk passed\n";
+ }
  // Optimised GPU spectrum evolution must be algebraically identical to the old
  // eager spectrum at DC/Nyquist and random frequencies, including wind/seed edits.
  {std::vector<float4> initial(4*65536);std::vector<float2> out(4*65536);blockDim={1,1,1};threadIdx={0,0,0};int checked=0;
@@ -52,7 +46,8 @@ int main(){
   if(fabsf(near.x-diffuse.x)<.001f)return 37;
   std::cout<<"200 wet-sand samples: range, origin stability, finite grazing response and dry exclusion passed\n";
  }
- // Compare all output channels against the previous eager-sky entry points.
+ // Art direction intentionally changes natural-colour pixels. Debug passes still
+ // have an independent formula; the frozen reference remains available for comparison.
  {const int w=13,h=9,count=w*h*4;int origin[4]={0,0,884,0};
   std::vector<float> hit(count),surface(count),ref(count);std::vector<unsigned int> pixels(w*h),oldPixels(w*h);
   float c[16]={1250,210,650,.52f,-.1f,3,1,-.7f,.7f,1,0,1};
@@ -62,11 +57,19 @@ int main(){
    c[9]=(float)toggle;
    for(int y=0;y<h;y++)for(int x=0;x<w;x++){blockIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,origin,hit.data(),surface.data(),ref.data(),w,h);}
    for(int debug=0;debug<3;debug++){c[10]=(float)debug;
-    for(int y=0;y<h;y++)for(int x=0;x<w;x++){blockIdx={(unsigned)x,(unsigned)y,0};shadeOcean(c,origin,hit.data(),surface.data(),ref.data(),pixels.data(),w,h);referenceShadeOcean(c,origin,hit.data(),surface.data(),ref.data(),oldPixels.data(),w,h);}
-    if(pixels!=oldPixels)return 33;
+    for(int y=0;y<h;y++)for(int x=0;x<w;x++){blockIdx={(unsigned)x,(unsigned)y,0};shadeOcean(c,origin,hit.data(),surface.data(),ref.data(),nullptr,pixels.data(),w,h);referenceShadeOcean(c,origin,hit.data(),surface.data(),ref.data(),oldPixels.data(),w,h);}
+    for(int i=0;i<w*h;i++){
+     if((pixels[i]>>24)!=255)return 33;
+     if(debug>0&&hit[i*4+1]>0){float3 expected;
+      if(debug==1)expected=mix3(make_float3(.1f,.8f,.6f),make_float3(.9f,.25f,.12f),sat(log2f(fmaxf(1,hit[i*4+2]))/6));
+      else expected=(make_float3(surface[i*4],surface[i*4+1],surface[i*4+2])+make_float3(1,1,1))*.5f;
+      expected=expected*c[11];auto packed=pack(make_float3(linearToDisplay(expected.x),linearToDisplay(expected.y),linearToDisplay(expected.z)));
+      if(pixels[i]!=packed)return 33;
+     }
+    }
    }
   }
-  std::cout<<"702 shading pixels match the frozen eager-sky evaluator\n";
+  std::cout<<"702 shading pixels: opaque output and independent debug-colour contracts passed\n";
  }
  // Compare closed-form height haze against independent midpoint integration.
  for(int i=0;i<100;i++){
@@ -209,6 +212,19 @@ int main(){
  }
  std::cout<<"200 near-waterline hillside rays: mismatches="<<lowMisses<<", maximum distance error="<<lowError<<" m\n";if(lowMisses||lowError>3)return 3;
  int origin[4]={0,0,42,0};float residual=0;auto waves=cpuOcean();const float* Waves=waves.data();
+ {std::vector<float> flat(4*OCEAN_TEXELS*4,0);int shifted[4]={1,-1,42,0};float changes=0;
+  float3 sun=norm3(make_float3(.3f,.7f,.5f));
+  for(int i=0;i<160;i++){
+   float3 p={1850+i*.37f,-1-(i%11)*.7f,1250+i*.17f};float depth=-p.y;
+   float a=seabedCaustic(p,depth,.1f,sun,Waves,origin),b=seabedCaustic(p+make_float3(-CELL,0,CELL),depth,.1f,sun,Waves,shifted);
+   if(!std::isfinite(a)||fabsf(a-b)>.045f)return 46;
+   if(fabsf(seabedCaustic(p,depth,.1f,sun,flat.data(),origin))>.006f)return 47;
+   if(seabedCaustic(p,20,.1f,sun,Waves,origin)!=0||seabedCaustic(p,depth,3,sun,Waves,origin)!=0)return 48;
+   changes+=fabsf(a);
+  }
+  if(changes<.01f)return 49;
+  std::cout<<"160 FFT-driven caustic samples: flat-water identity, rebasing, finite response and detail cutoff passed\n";
+ }
  for(int i=0;i<100;i++){
   float3 ro={340,4+(i%10)*25.0f,100};float3 rd=norm3(make_float3(.3f,-.015f-(i%13)*.04f,1));
   float t=waterHit(ro,rd,1.05f/720,1,Waves,origin);if(t<0)continue;
