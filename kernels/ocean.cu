@@ -85,3 +85,20 @@ __device__ float waterHit(float3 ro,float3 rd,float cone,float wind,const float*
  }
  return t;
 }
+// Seed-dependent Gaussian Fourier coefficients do not change with time or wind.
+// Build them once per world seed on the GPU; the animated pass is just dispersion
+// and complex phase rotation. The original seedOcean remains the regression oracle.
+__global__ void cacheOceanSpectrum(const int* Origin,float4* Initial){
+ int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y),layer=(int)blockIdx.z;
+ if(x>=256||y>=256||layer>=4)return;
+ float2 a=initialSpectrum(x,y,layer,Origin[2]),b=initialSpectrum((256-x)%256,(256-y)%256,layer,Origin[2]);
+ Initial[layer*65536+y*256+x]=make_float4(a.x,a.y,b.x,b.y);
+}
+__global__ void advanceOceanSpectrum(const float* C,const float4* Initial,float2* Spectrum){
+ int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y),layer=(int)blockIdx.z;
+ if(x>=256||y>=256||layer>=4)return;int i=layer*65536+y*256+x;
+ int nx=x<128?x:x-256,nz=y<128?y:y-256;
+ float k=(2*PI/oceanPeriod(layer))*sqrtf((float)(nx*nx+nz*nz));
+ float phase=sqrtf(9.81f*k)*C[5],c=cosf(phase),s=sinf(phase);float4 a=Initial[i];
+ Spectrum[i]=make_float2(((a.x+a.z)*c-(a.y+a.w)*s)*C[6],((a.x-a.z)*s+(a.y-a.w)*c)*C[6]);
+}

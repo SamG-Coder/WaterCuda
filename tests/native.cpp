@@ -28,6 +28,16 @@ std::vector<float> cpuOcean(){
  return waves;
 }
 int main(){
+ // Optimised GPU spectrum evolution must be algebraically identical to the old
+ // eager spectrum at DC/Nyquist and random frequencies, including wind/seed edits.
+ {std::vector<float4> initial(4*65536);std::vector<float2> out(4*65536);blockDim={1,1,1};threadIdx={0,0,0};int checked=0;
+  for(int seed:{0,42,884,2147483647}){int o[4]={0,0,seed,0};
+   for(int i=0;i<128;i++){int x=(i*17)%256,y=(i*29)%256,layer=i%4;blockIdx={(unsigned)x,(unsigned)y,(unsigned)layer};cacheOceanSpectrum(o,initial.data());
+    for(float time:{0.0f,3.0f,53.0f})for(float wind:{.25f,1.0f,2.5f}){float c[16]={};c[5]=time;c[6]=wind;advanceOceanSpectrum(c,initial.data(),out.data());auto a=out[layer*65536+y*256+x],b=evolveSpectrum(x,y,layer,time,wind,seed);
+     if(a.x!=b.x||a.y!=b.y)return 45;checked++;}
+   }
+  }std::cout<<checked<<" cached-spectrum coefficients exactly match the eager reference\n";
+ }
  // Wet sand is dry inland, continuous at its edge, and stable after rebasing.
  {int o[4]={0,0,884,0},shifted[4]={1,-1,884,0};Island a=describeIsland(0,0,o),b=describeIsland(-1,1,shifted);
   float3 diffuse={.3f,.25f,.15f},normal={0,1,0},sun=norm3(make_float3(.2f,.7f,1));
