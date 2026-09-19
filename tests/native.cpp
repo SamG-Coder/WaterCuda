@@ -4,6 +4,7 @@
 #include "terrain-reference.hpp"
 #include "../kernels/ocean.cu"
 #include "../kernels/render.cu"
+#include "shading-reference.hpp"
 #include <complex>
 #include <iomanip>
 // Independent CPU complex transform, compared with GPU samples by the browser checks.
@@ -27,6 +28,22 @@ std::vector<float> cpuOcean(){
  return waves;
 }
 int main(){
+ // Compare all output channels against the previous eager-sky entry points.
+ {const int w=13,h=9,count=w*h*4;int origin[4]={0,0,884,0};
+  std::vector<float> hit(count),surface(count),ref(count);std::vector<unsigned int> pixels(w*h),oldPixels(w*h);
+  float c[16]={1250,210,650,.52f,-.1f,3,1,-.7f,.7f,1,0,1};
+  for(int i=0;i<w*h;i++){hit[i*4]=10+hash2(i,0,12)*6400;hit[i*4+1]=(float)(i%3);hit[i*4+2]=.2f+hash2(i,1,31)*12;hit[i*4+3]=.01f;surface[i*4+1]=1;surface[i*4+3]=hash2(i,2,42)*45;}
+  blockDim={1,1,1};threadIdx={0,0,0};
+  for(int toggle=0;toggle<2;toggle++){
+   c[9]=(float)toggle;
+   for(int y=0;y<h;y++)for(int x=0;x<w;x++){blockIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,origin,hit.data(),surface.data(),ref.data(),w,h);}
+   for(int debug=0;debug<3;debug++){c[10]=(float)debug;
+    for(int y=0;y<h;y++)for(int x=0;x<w;x++){blockIdx={(unsigned)x,(unsigned)y,0};shadeOcean(c,origin,hit.data(),surface.data(),ref.data(),pixels.data(),w,h);referenceShadeOcean(c,origin,hit.data(),surface.data(),ref.data(),oldPixels.data(),w,h);}
+    if(pixels!=oldPixels)return 33;
+   }
+  }
+  std::cout<<"702 shading pixels match the frozen eager-sky evaluator\n";
+ }
  // Compare closed-form height haze against independent midpoint integration.
  for(int i=0;i<100;i++){
   double a=(i%10)*170.0,b=(i/10)*110.0,length=100+i*170.0,sum=0;

@@ -79,11 +79,14 @@ __device__ float bedDetailWeight(float viewPath,float depth,float sunY){
 __global__ void shadeOcean(const float* C,const int* Origin,const float* Hit,const float* Surface,const float* Reflection,unsigned int* Pixels,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
  float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height),sun=sunDirection(C);
- float t=Hit[b],material=Hit[b+1],fp=Hit[b+2];float3 p=ro+rd*t,n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),color=sky(rd,sun);
+ float t=Hit[b],material=Hit[b+1],fp=Hit[b+2];float3 p=ro+rd*t,n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),color=make_float3(0,0,0);
+ // Sky/cloud evaluation is only needed when it survives the material branch.
+ if(material!=1&&material!=2)color=sky(rd,sun);
  if(material==1)color=landColor(p,n,sun,Origin,fp)*terrainShadow(p+n*.4f,sun,Origin,fp);
  if(material==2){
-  float nv=sat(-dot3(n,rd)),fresnel=.0204f+.9796f*powf(1-nv,5);float3 rr=rd-n*(2*dot3(rd,n)),reflected=sky(rr,sun);
-  if(C[9]>.5f&&t<6500){if(Reflection[b+3]>0)reflected=filteredReflection(x,y,width,height,Hit,Surface,Reflection);}
+  float nv=sat(-dot3(n,rd)),fresnel=.0204f+.9796f*powf(1-nv,5);float3 rr=rd-n*(2*dot3(rd,n)),reflected=make_float3(0,0,0);
+  if(C[9]>.5f&&t<6500&&Reflection[b+3]>0)reflected=filteredReflection(x,y,width,height,Hit,Surface,Reflection);
+  else reflected=sky(rr,sun);
   float depth=Surface[b+3],eta=.75019f,k=1-eta*eta*(1-nv*nv);float3 refracted=rd*eta+n*(eta*nv-sqrtf(fmaxf(0,k)));
   float travel=fminf(200,depth/fmaxf(.15f,-refracted.y)),initialTravel=travel;
   float detail=bedDetailWeight(travel,depth,sun.y);
