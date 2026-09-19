@@ -51,7 +51,11 @@ __device__ float3 groundNormal(float3 p,const int* Origin,float fp){
 // Fixed budgets bound GPU work. The draw distance is finite; the seeded world is not.
 __device__ float traceLand(float3 ro,float3 rd,const int* Origin,float limit,float cone){
  float t=0.1f,raySlope=fabsf(rd.y)+3.8f*sqrtf(rd.x*rd.x+rd.z*rd.z);if(ro.y>500){if(rd.y>=-0.0001f)return -1;t=fmaxf(t,(500-ro.y)/rd.y);}
- for(int cell=0;cell<32;cell++){
+ // A segment crosses at most ceil(|dx|/CELL)+ceil(|dz|/CELL) boundaries.
+ // Include the starting cell and rounding slack; keep the original 32-cell cap.
+ // A runtime bound avoids unrolling the full island grammar for 32 cells.
+ int cellBudget=(int)fminf(32,ceilf(limit*(fabsf(rd.x)+fabsf(rd.z))/CELL)+3);
+ for(int cell=0;cell<cellBudget;cell++){
   if(t>=limit)return -1;float3 p=ro+rd*t;
   if((p.y>500&&rd.y>=0)||(p.y< -46&&rd.y<=0))return -1;
   int cx=(int)floorf(p.x/CELL),cz=(int)floorf(p.z/CELL);
@@ -65,7 +69,12 @@ __device__ float traceLand(float3 ro,float3 rd,const int* Origin,float limit,flo
    // The longest ray through a 3000 x 518 x 3000 m island box is under 4275 m.
    // A one-metre minimum step and 4352 iterations cover the entire box, including
    // rays nearly parallel to a hillside; never silently drop the rest of the island.
-   for(int j=0;j<4352;j++){
+   // The per-ray span gives a tighter runtime trip count. One extra sample keeps
+   // inclusive endpoints and float rounding safe; the minimum advance remains 1 m.
+   // Keep the original 4352 hard cap, without asking drivers to optimize a fixed
+   // multi-thousand-iteration loop containing the complete terrain grammar.
+   int stepBudget=(int)fminf(4352.0f,fmaxf(0.0f,ceilf(stop-s)+2.0f));
+   for(int j=0;j<stepBudget;j++){
     if(s>stop)break;float3 q=ro+rd*s;float fp=fmaxf(0.2f,s*cone);float gap=q.y-islandHeight(q.x,q.z,a,fp);
     if(gap<fmaxf(0.05f,fp*0.15f)){float lo=previous,hi=s;for(int k=0;k<7;k++){float mid=(lo+hi)*0.5f;float3 m=ro+rd*mid;if(m.y>islandHeight(m.x,m.z,a,fmaxf(0.2f,mid*cone)))lo=mid;else hi=mid;}return (lo+hi)*0.5f;}
     previous=s;s+=fmaxf(1.0f,gap/fmaxf(raySlope,.001f));
@@ -97,9 +106,9 @@ __device__ float3 wetSandSheen(float3 diffuse,float3 p,float3 n,float3 rd,float3
  float a2=.20f*.20f,den=nh*nh*(a2-1)+1,D=a2/(PI*den*den);
  float gv=2*nv/(nv+sqrtf(a2+(1-a2)*nv*nv)+.0001f),gl=2*nl/(nl+sqrtf(a2+(1-a2)*nl*nl)+.0001f);
  float directF=.02f+.98f*powf(1-vh,5),viewF=.02f+.98f*powf(1-nv,5);
- float3 rr=rd-n*(2*dot3(rd,n));float3 environment=sky(norm3(make_float3(rr.x,.06f,rr.z)),sun);
+ float3 rr=rd-n*(2*dot3(rd,n));float3 environment=skyEnvironment(norm3(make_float3(rr.x,.06f,rr.z)),sun);
  float specular=D*gv*gl*directF/(4*fmaxf(nv,.05f));
- return mix3(diffuse,environment,wet*viewF*.65f)+make_float3(1,.85f,.65f)*(specular*wet*shadow*1.3f);
+ return mix3(diffuse,environment,wet*viewF*.65f)+sunRadiance(sun)*(specular*wet*shadow*.75f);
 }
 __device__ float3 landColor(float3 p,float3 n,float3 sun,const int* Origin,float fp){
  Island a=describeIsland((int)floorf(p.x/CELL),(int)floorf(p.z/CELL),Origin);float u=p.x-a.x,v=p.z-a.z;
@@ -135,7 +144,8 @@ __device__ float3 landColor(float3 p,float3 n,float3 sun,const int* Origin,float
  }
 
  float wet=shoreWetness(p,a,fp);col=col*(1-wet*0.28f);
- float light=0.27f+0.73f*sat(dot3(n,sun));return col*light+make_float3(0.035f,0.065f,0.075f)*(1-n.y)*0.5f;
+ float nl=sat(dot3(n,sun));float3 ambient=mix3(make_float3(.14f,.17f,.19f),make_float3(.22f,.26f,.28f),sat(n.y));
+ return col*(ambient+sunRadiance(sun)*(nl*.30f));
 }
 __device__ float terrainShadow(float3 p,float3 sun,const int* Origin,float fp){
  float visibility=1,t=8;

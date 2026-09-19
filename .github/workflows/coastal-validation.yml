@@ -1,0 +1,42 @@
+name: Coastal rendering validation
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - name: Install native test compiler
+        run: choco install mingw --no-progress -y
+      - run: npm run test:native
+      - name: Install optional browser validation tools
+        run: npm install --no-save --package-lock=false playwright@1.63.0
+      - run: npx playwright install --with-deps chromium
+      - name: Actual CUDA pixels and cached GPU spectrum regression
+        env:
+          CW_GPU_BACKEND: hardware
+          DEBUG: pw:browser
+        run: npm run test:browser
+      - name: Reproducible source snapshot
+        if: always()
+        shell: bash
+        run: git archive --format=tar HEAD | gzip > water-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coastal-validation-${{ github.sha }}
+          path: |
+            water-source.tar.gz
+            reports/
+          retention-days: 14
