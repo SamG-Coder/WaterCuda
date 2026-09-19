@@ -26,6 +26,8 @@ __device__ float islandHeight(float x,float z,Island a,float fp){
  float warpZ=(noise2(mx/650+31,mz/650+a.seed)-.5f)*150;
  float ridge=1-fabsf(noise2((mx+warpX)/310+a.seed,(mz+warpZ)/310)*2-1);
  float base=-45+powf(shape,1.7f)*(a.peak*(.48f+.52f*ridge)+45);
+ // Inland relief is exactly zero here; avoid three unused noise evaluations.
+ if(base<=2)return base;
  float detail=0,w1=weight(fp,1.0f/95),w2=weight(fp,1.0f/31),w3=weight(fp,1.0f/9);
  if(w1>0)detail+=(noise2((mx+warpX)/95+a.seed,(mz+warpZ)/95)-.5f)*40*w1;
  if(w2>0)detail+=(noise2(mx/31+a.seed,mz/31)-.5f)*13*w2;
@@ -35,7 +37,16 @@ __device__ float islandHeight(float x,float z,Island a,float fp){
 
 }
 __device__ float ground(float x,float z,const int* Origin,float fp){return islandHeight(x,z,describeIsland((int)floorf(x/CELL),(int)floorf(z/CELL),Origin),fp);}
-__device__ float3 groundNormal(float3 p,const int* Origin,float fp){float e=fmaxf(0.4f,fp*0.7f);return norm3(make_float3(ground(p.x-e,p.z,Origin,fp)-ground(p.x+e,p.z,Origin,fp),2*e,ground(p.x,p.z-e,Origin,fp)-ground(p.x,p.z+e,Origin,fp)));}
+__device__ float3 groundNormal(float3 p,const int* Origin,float fp){
+ float e=fmaxf(.4f,fp*.7f);int cx=(int)floorf(p.x/CELL),cz=(int)floorf(p.z/CELL);
+ float lx=p.x-(float)cx*CELL,lz=p.z-(float)cz*CELL;
+ if(lx>=e&&lz>=e&&lx+e<CELL&&lz+e<CELL){
+  // All four taps use one descriptor; keep the boundary fallback for large footprints.
+  Island a=describeIsland(cx,cz,Origin);
+  return norm3(make_float3(islandHeight(p.x-e,p.z,a,fp)-islandHeight(p.x+e,p.z,a,fp),2*e,islandHeight(p.x,p.z-e,a,fp)-islandHeight(p.x,p.z+e,a,fp)));
+ }
+ return norm3(make_float3(ground(p.x-e,p.z,Origin,fp)-ground(p.x+e,p.z,Origin,fp),2*e,ground(p.x,p.z-e,Origin,fp)-ground(p.x,p.z+e,Origin,fp)));
+}
 // DDA over cells, then bounded height-field stepping inside each island box.
 // Fixed budgets bound GPU work. The draw distance is finite; the seeded world is not.
 __device__ float traceLand(float3 ro,float3 rd,const int* Origin,float limit,float cone){

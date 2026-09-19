@@ -1,6 +1,7 @@
 #include "cuda_compat.hpp"
 #include "../kernels/common.cu"
 #include "../kernels/terrain.cu"
+#include "terrain-reference.hpp"
 #include "../kernels/ocean.cu"
 #include "../kernels/render.cu"
 #include <complex>
@@ -26,6 +27,19 @@ std::vector<float> cpuOcean(){
  return waves;
 }
 int main(){
+ // Compare optimized terrain against the frozen previous implementation.
+ for(int seed:{42,884,12345}){
+  int o[4]={0,0,seed,0};
+  for(int i=0;i<2000;i++){
+   float x=hash2(i,0,117)*CELL,z=hash2(i,1,911)*CELL;
+   if(i%8==0)x=(i%16==0?CELL-.05f:.05f);
+   float fp=(i%7==0?800.0f:(i%5==0?128.0f:.2f));float3 p={x,0,z};
+   float h=ground(x,z,o,fp),expected=referenceGround(x,z,o,fp);
+   auto n=groundNormal(p,o,fp),old=referenceGroundNormal(p,o,fp);
+   if(fabsf(h-expected)>.00001f||fabsf(n.x-old.x)>.00001f||fabsf(n.y-old.y)>.00001f||fabsf(n.z-old.z)>.00001f)return 22;
+  }
+ }
+ std::cout<<"6000 terrain/normal samples match the frozen pre-optimization evaluator\n";
  // Two-way bed lighting must dim monotonically and lose red before blue.
  {auto zero=waterTransmission(0);if(zero.x!=1||zero.y!=1||zero.z!=1)return 15;
   if(fabsf(sunWaterPath(10,1)-10)>.0001f||sunWaterPath(10,0)>15.2f)return 20;
