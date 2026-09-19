@@ -51,7 +51,11 @@ __device__ float3 groundNormal(float3 p,const int* Origin,float fp){
 // Fixed budgets bound GPU work. The draw distance is finite; the seeded world is not.
 __device__ float traceLand(float3 ro,float3 rd,const int* Origin,float limit,float cone){
  float t=0.1f,raySlope=fabsf(rd.y)+3.8f*sqrtf(rd.x*rd.x+rd.z*rd.z);if(ro.y>500){if(rd.y>=-0.0001f)return -1;t=fmaxf(t,(500-ro.y)/rd.y);}
- for(int cell=0;cell<32;cell++){
+ // A segment crosses at most ceil(|dx|/CELL)+ceil(|dz|/CELL) boundaries.
+ // Include the starting cell and rounding slack; keep the original 32-cell cap.
+ // A runtime bound avoids unrolling the full island grammar for 32 cells.
+ int cellBudget=(int)fminf(32,ceilf(limit*(fabsf(rd.x)+fabsf(rd.z))/CELL)+3);
+ for(int cell=0;cell<cellBudget;cell++){
   if(t>=limit)return -1;float3 p=ro+rd*t;
   if((p.y>500&&rd.y>=0)||(p.y< -46&&rd.y<=0))return -1;
   int cx=(int)floorf(p.x/CELL),cz=(int)floorf(p.z/CELL);

@@ -23,9 +23,9 @@ Open **http://localhost:8090** in Chrome or Edge. On Windows, double-click `STAR
 - Drag to look; WASD or arrows fly along the camera's actual viewing direction; Q/E descend/rise. Space also rises.
 - F, the Free camera button, or double-clicking the scene captures mouse-look; Esc releases it. Drag remains available when pointer lock is unsupported.
 - Shift boosts speed; Z slows down; wheel adjusts flight speed. Z avoids the browser's Ctrl+W shortcut.
-- 1/2/3 select Coast, Aerial and Waterline. H hides/restores the interface.
+- 1/2/3/4 select Coast, Aerial, Waterline and Shallows. H hides/restores the interface.
 - Change the world seed and press ↻. `?seed=12345` opens a specific seed.
-- Wind, sunlight, resolution and island reflections are adjustable. Auto targets 60 FPS using measured GPU time; fixed resolutions remain available.
+- Sea/light presets, water clarity, sun direction, wind, sunlight, resolution and island reflections are adjustable. Auto targets 60 FPS using measured GPU time; fixed resolutions remain available.
 - Begin drift moves the camera; Pause ocean freezes wave time. Save image exports the computed frame without the interface.
 - Under the surface includes footprint/normal diagnostics and real GPU checks.
 
@@ -41,7 +41,7 @@ Close-up terrain materials use metre-based triplanar colour and bump detail with
 
 **Shading:** Fresnel reflection, GGX/Smith sun highlights, Snell refraction direction, depth-dependent absorption/scattering, approximate seabed refraction, irregular shoreline foam and caustics. Island reflections trace each visible water pixel using its own wave normal, avoiding block artifacts from half-resolution reconstruction. Terrain adds stratified rock colour, vegetation variation and terrain shadows. Direct and reflected island views share analytically integrated height-dependent haze. No scene image textures, HDRIs or imported models. Fonts are optional Google Fonts with system fallbacks.
 
-**Scheduling:** input runs on the browser animation clock; rendering allows at most two outstanding frames without blocking input on GPU completion. Under the surface reports GPU time for spectrum generation, visibility, reflections and shading. The ocean needs about 9.3 MiB of constant storage including FFT scratch and mipmaps; per-pixel visibility/reflection buffers scale with the selected resolution.
+**Scheduling:** input runs on the browser animation clock; rendering allows at most two outstanding frames without blocking input on GPU completion. Under the surface reports GPU time for spectrum generation, visibility, reflections and shading. The ocean needs about 13.3 MiB of constant storage including cached coefficients, FFT scratch and mipmaps; per-pixel visibility/reflection buffers scale with the selected resolution.
 
 ## Validation
 
@@ -50,18 +50,18 @@ npm test
 npm run test:native
 ```
 
-`npm test` translates all eight CUDA entry points and runs nine Node tests for free flight, focus handling, diagonal speed, frame-rate independence, world rebasing, seed validation and render alignment. `test:native` needs a C++17 compiler (`g++`, or set `CXX`), checks terrain against dense traversal and computes an independent double-precision CPU inverse FFT. It regenerates `tests/ocean-reference.json`, used by browser GPU checks.
+`npm test` translates all ten CUDA entry points and runs fifteen Node tests for free flight, focus handling, diagonal speed, frame-rate independence, world rebasing, seed validation and render alignment, cached wave scheduling, sea looks, shader contracts and the browser fixture server. `test:native` needs a C++17 compiler (`g++`, or set `CXX`), checks terrain against dense traversal and computes an independent double-precision CPU inverse FFT. It regenerates `tests/ocean-reference.json`, used by browser GPU checks.
 
-Open `http://localhost:8090/?test=1` to execute eight GPU checks in the actual browser. They check determinism, terrain and wave rebasing, distant integer coordinates, seed variation, unresolved wave energy, agreement with the independent CPU FFT and WebGPU validation errors.
+Open `http://localhost:8090/?test=1` to execute nine GPU checks in the actual browser. They check cached/eager wave equivalence, determinism, terrain and wave rebasing, distant integer coordinates, seed variation, unresolved wave energy, agreement with the independent CPU FFT and WebGPU validation errors.
 
 Verified on this machine in the Chromium-based in-app browser:
 
-- All eight CUDA entry points translated and created working WebGPU pipelines.
-- Nine Node tests and eight browser GPU checks passed.
+- All ten CUDA entry points translated and created working WebGPU pipelines.
+- Fifteen Node tests and nine browser GPU checks passed.
 - 192 terrain rays across three occupied seeded islands plus 200 low-angle waterline hillside rays: zero hit/miss mismatches against 0.25 m dense traversal; maximum distance difference about 0.52 m.
 - 100 island seeds checked for terrain bounds and cell-edge continuity; 60 close material samples checked for finite output, rebasing stability and detail filtering.
 - 100 spectral-water rays: maximum surface-equation residual below 0.004 m.
-- Observed approximately 60 FPS in the seed-884 coast view at 1280 × 1240; GPU total about 8–12 ms in recent views. This is a single-view observation, not a controlled cross-version or cross-device benchmark.
+- Observed approximately 59–60 FPS in seed-884 coastal and shallow-water views at 1280 × 720, with GPU totals around 6–9 ms during spot checks. These are not controlled cross-version or cross-device benchmarks.
 - Frame rate depends on view, reflections and internal resolution. The UI reports observed presentation FPS; this is not a cross-device benchmark.
 
 ## Current scope and next steps
