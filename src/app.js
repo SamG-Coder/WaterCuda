@@ -35,7 +35,7 @@ function toggleUI(){const clean=document.body.classList.toggle('clean');$('resto
 $('hide').onclick=toggleUI;$('restore').onclick=toggleUI;
 const input=new FlightInput(canvas,camera,{
  onShortcut:code=>{if(code==='KeyH')toggleUI();if(code==='KeyF')input.capture();if(code==='Digit1')preset('coast');if(code==='Digit2')preset('aerial');if(code==='Digit3')preset('water');if(code==='Digit4')preset('shore');},
- onSpeed:delta=>{speed=Math.max(3,Math.min(1000,speed*Math.exp(-delta*.001)));toast('Flight speed · '+Math.round(speed)+' m/s');},
+ onSpeed:delta=>{speed=Math.max(3,speed*Math.exp(-delta*.001));toast('Flight speed · '+Math.round(speed)+' m/s');},
  onLock:locked=>{$('fly').textContent=locked?'Flying · Esc to release':'Free camera · F';document.body.classList.toggle('exploring',locked);$('flightStatus').textContent=locked?'MOUSE LOOK · ESC TO RELEASE':'DRAG TO LOOK · F FOR MOUSE LOOK';}
 });
 $('fly').onclick=()=>{if(!input.capture())toast('Mouse capture unavailable here. Drag on the scene to look.');};

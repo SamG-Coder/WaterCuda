@@ -6,7 +6,7 @@ test('forward flight follows both yaw and pitch',()=>{
  assert.ok(Math.abs(v[0]-Math.SQRT1_2)<1e-9);assert.ok(Math.abs(v[1]-Math.SQRT1_2)<1e-9);assert.ok(Math.abs(v[2])<1e-9);
  assert.ok(flightVector(0,-.5,1,0,0)[1]<0);
 });
-test('diagonal and combined vertical flight cannot exceed the speed cap',()=>{
+test('diagonal and combined vertical flight preserve the selected travel speed',()=>{
  for(const pitch of [-1,.0,1])for(const forward of [-1,0,1])for(const side of [-1,0,1])for(const up of [-1,0,1])assert.ok(Math.hypot(...flightVector(.7,pitch,forward,side,up))<=1+1e-10);
 });
 test('button focus allows flight but text and range inputs retain editing',()=>{

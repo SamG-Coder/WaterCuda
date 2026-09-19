@@ -22,7 +22,7 @@ Open **http://localhost:8090** in Chrome or Edge. On Windows, double-click `STAR
 
 - Drag to look; WASD or arrows fly along the camera's actual viewing direction; Q/E descend/rise. Space also rises.
 - F, the Free camera button, or double-clicking the scene captures mouse-look; Esc releases it. Drag remains available when pointer lock is unsupported.
-- Shift boosts speed; Z slows down; wheel adjusts flight speed. Z avoids the browser's Ctrl+W shortcut.
+- Shift boosts speed; Z slows down; wheel adjusts flight speed without an upper speed cap. Z avoids the browser's Ctrl+W shortcut.
 - 1/2/3/4 select Coast, Aerial, Waterline and Shallows. H hides/restores the interface.
 - Change the world seed and press ↻. `?seed=12345` opens a specific seed.
 - Sea/light presets, water clarity, sun direction, wind, sunlight, resolution and island reflections are adjustable. Auto targets 60 FPS using measured GPU time; fixed resolutions remain available.
