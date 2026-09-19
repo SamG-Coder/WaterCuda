@@ -10,7 +10,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,6 +18,13 @@ jobs:
           node-version: 22
       - run: npm test
       - run: npm run test:native
+      - name: Install optional browser validation tools
+        run: npm install --no-save --package-lock=false playwright@1.55.1
+      - run: npx playwright install --with-deps chromium
+      - name: Actual CUDA pixels and cached GPU spectrum regression
+        env:
+          CW_SOFTWARE_GPU: '1'
+        run: npm run test:browser
       - name: Reproducible source snapshot
         if: always()
         run: git archive --format=tar HEAD | gzip > water-source.tar.gz
