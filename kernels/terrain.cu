@@ -23,8 +23,8 @@ __device__ float coastalRelief(float base,float mx,float mz,Island a,float fp){
  float channel=smoothf(.30f,.52f,noise2(along/85+27,cross/180+a.seed));
  float spit=smoothf(.64f,.82f,noise2(along/310+71,cross/310+a.seed));
  float deposition=(32*bar*channel+spit*5*expf(-powf((base+2)/5,2)))*sector;
- // Offshore sediment forms low bars rather than a second mountain ridge.
- float capacity=fmaxf(0,1.8f-base);
+ // Submerged banks approach -1.8 metres; deposition cannot create dry land.
+ float capacity=fmaxf(0,-1.8f-base);
  deposition=capacity*(1-expf(-deposition/fmaxf(.01f,capacity)));
  float dunes=0;
  if(base>0&&fp<12){float ridge=.5f+.5f*sinf(along*.075f+noise2(along/65,cross/65+a.seed)*4);

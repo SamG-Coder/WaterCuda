@@ -7,7 +7,7 @@
 The cover is an unedited 1280 × 720 frame exported from WaterCuda in the browser, seed 884, Clear coast. Click it to explore the same island. Use a recent Chrome or Edge with WebGPU support; the first GPU compilation can take a while.
 
 **Coastal ecology / 003:** seeded offshore sandbars, shallow channels, dunes and
-procedural shrubs with curved leaves, wind movement and a bounded CUDA habitat cache.
+procedural shrubs with GPU-generated foliage billboards, wind movement and persistent terrain coverage.
 See [the coastal ecology notes](docs/coastal-ecology.md).
 See [the implementation and validation notes](docs/coastal-realism.md).
 
@@ -46,11 +46,11 @@ Open **http://localhost:8090** in Chrome or Edge. On Windows, double-click `STAR
 
 **Water:** four 256 × 256 spectral cascades replace the small analytic wave sum that produced regular crosshatching. CUDA generates a seeded directional Phillips spectrum, evolves it with deep-water dispersion, performs row/column inverse FFTs, and builds height/slope/energy mipmaps. Patch sizes are 32, 128, 512 and 2,048 metres, covering approximately 0.35–192 m wavelengths. Ray intersections use the resulting displaced height field. Trilinear mip sampling follows the projected pixel footprint; lost slope variance goes into shading roughness. Integer modular sampling preserves the field when the origin changes. The combined ocean repeats spatially every 2,048 m; island descriptors are independent.
 
-**Coastal ecology:** depth-contour sandbars, shallow channels and beach dunes share the terrain height field. Nearby shrubs use curved ray-intersected branches and leaves, with a 64 KiB CUDA-generated habitat cache and footprint-based canopy detail. Their geometry fades out at 180 m; distant vegetation remains terrain shading.
+**Coastal ecology:** submerged sandbanks and deeper channels share the terrain height field; offshore deposits stay at least 1.8 m below mean sea level. Nearby shrubs use two crossed texture cards and a 64 KiB habitat cache. CUDA generates four foliage variants, matching overhead crowns and filtered mipmaps once at startup (2.73 MiB including the cache). Between 65 and 125 m the cards blend into matching seeded crowns in the terrain material; distant plants have no range cutoff. Unresolved crowns become filtered habitat coverage.
 
 Close-up terrain materials use metre-based triplanar colour and bump detail with separate surface filtering, so fine shading detail can remain visible near the camera.
 
-**Shading:** Fresnel reflection, GGX/Smith sun highlights, Snell refraction direction, depth-dependent absorption/scattering, approximate seabed refraction, irregular shoreline foam and caustics. Island reflections trace each visible water pixel using its own wave normal, avoiding block artifacts from half-resolution reconstruction. Terrain adds stratified rock colour, vegetation variation and terrain shadows. Direct and reflected island views share analytically integrated height-dependent haze. No scene image textures, HDRIs or imported models. Fonts are optional Google Fonts with system fallbacks.
+**Shading:** Fresnel reflection, GGX/Smith sun highlights, Snell refraction direction, depth-dependent absorption/scattering, approximate seabed refraction, irregular shoreline foam and caustics. Island reflections trace each visible water pixel using its own wave normal, avoiding block artifacts from half-resolution reconstruction. Terrain adds stratified rock colour, vegetation variation and terrain shadows. Direct and reflected island views share analytically integrated height-dependent haze. No downloaded scene textures, HDRIs or imported models; foliage textures are generated on the GPU. Fonts are optional Google Fonts with system fallbacks.
 
 **Scheduling:** input runs on the browser animation clock; rendering allows at most two outstanding frames without blocking input on GPU completion. Under the surface reports GPU time for spectrum generation, visibility, reflections and shading. The ocean needs about 13.3 MiB of constant storage including cached coefficients, FFT scratch and mipmaps; per-pixel visibility/reflection buffers scale with the selected resolution.
 

@@ -1,37 +1,30 @@
-# Sandbars and procedural scrub
+# Coastal ecology
 
-The coastal ecology pass adds geometry to the existing CUDA scene. No plant meshes, billboard images or terrain textures are downloaded.
+Everything is authored in CUDA and compiled to WebGPU. No plant meshes or foliage image files are downloaded.
 
-[![Sandbar and its sheltered shallow channel, exported from the browser renderer](images/watercuda-sandbars.png)](https://samg-coder.github.io/WaterCuda/?seed=884&view=bars&look=coastal)
+## Submerged sandbars
 
-## Coastal terrain
+[![Shallow sandbanks rendered through water](images/watercuda-sandbars.png)](https://samg-coder.github.io/WaterCuda/?seed=884&view=bars&look=coastal)
 
-Seeded sediment bands follow selected sections of the island's original depth contours. Narrow offshore ridges leave the original deeper bed behind them, forming shallow channels. Noise breaks the ridges into sections; occasional wider deposits connect to the shore. A smooth capacity limit keeps offshore deposits below 1.8 m above mean water level. Low dune relief grows behind suitable beaches and is filtered by pixel footprint.
+Seeded sediment bands follow selected coastal depth contours. Offshore deposits approach a ceiling 1.8 metres below mean sea level, leaving pale seabed visible through shallow water and deeper channels between banks. They cannot create exposed strips of sand. Existing dry beaches retain their dune relief. The water remains the displaced spectral ocean; refraction, absorption and caustics reveal the bed.
 
-The relief stays inside the existing island bounds and is zero on the deep seabed and highlands. Primary rays, reflections, terrain normals, wet sand and water-depth optics all use the same modified height field. These are static seeded formations, not a sediment or tidal simulation. The FFT waves do not yet shoal or break according to these bars.
+## Generated foliage billboards
 
-## Shrubs
+[![CUDA-generated shrub billboards](images/watercuda-scrub.png)](https://samg-coder.github.io/WaterCuda/?seed=884&view=scrub&look=coastal)
 
-[![Procedural scrub with curved individual leaves, exported from the browser renderer](images/watercuda-scrub.png)](https://samg-coder.github.io/WaterCuda/?seed=884&view=scrub&look=coastal)
+A one-time CUDA pass projects seeded leaves into four 128-pixel side-view textures and four matching overhead crown textures. Premultiplied RGBA mipmaps preserve average coverage; trilinear sampling filters detail with pixel footprint. The atlas and habitat patch occupy 2.73 MiB together, sharing one storage binding.
 
-Six-metre cells deterministically generate jittered plants with variation in size, branch layout, leaf orientation and colour. Habitat tests reject the wet shore, steep slopes and high terrain, and produce patches rather than uniform coverage. Habitat evaluation uses canonical island coordinates so crossing a floating-origin boundary does not change plant eligibility.
+Each close shrub uses two crossed alpha-tested texture cards, replacing hundreds of branch and leaf intersections. Wind offsets the upper card texture. Habitat is deterministic in six-metre cells, excluding underwater ground and steep slopes. A 64-by-64 cell cache updates only on cell, seed or origin changes.
 
-A CUDA kernel caches a 64 × 64 patch around the camera, using 65,552 bytes. It refreshes when the camera enters a new six-metre cell, when the origin changes, or when the seed changes. Wave time and wind changes do not regenerate habitat. The world does not accumulate plant instances as the camera travels.
+Between 65 and 125 metres, stable coverage dithering blends the cards into overhead crowns in the terrain material. The crowns use the same world cell, seed, position, size and foliage variant, including outside the near cache. There is no distance cutoff for terrain vegetation. Subpixel crowns transition to average habitat coverage rather than flickering or disappearing. Direct and reflected terrain share this material.
 
-The visibility pass traverses bounded cells and intersects curved branch and leaf primitives directly. Close plants have individually angled leaves and geometric gaps; distant plants use simplified canopy clusters. Leaf detail follows projected footprint, and canopy geometry shrinks away between 140 and 180 m. Farther hills retain the existing terrain vegetation material. Wind moves the sprigs, and shading includes terrain shadow, approximate canopy occlusion, contact darkening and a backlighting term. Nearby water reflections can include shrubs inside the cached patch.
+These are textured shrub impostors. They do not provide individual leaf geometry, fully traced leaf shadows or a botanical species library. Ground contact darkening and foliage lighting are approximations; at long range the representation lies on the terrain.
 
-This is a first procedural shrub family, not a botanical species library. Contact darkening is approximate, individual leaves do not cast fully traced shadows onto the ground, and the canopy LOD transition can still be noticeable. High aerial cameras use terrain coverage rather than individual shrubs.
+## Validation
 
-## Checks
-
-- All 12 CUDA entry points compile within the existing baseline storage-buffer limits.
-- 17 Node tests include cache invalidation for movement, rebasing and seed changes.
-- Native checks compare all 4,096 cached habitat entries with direct generation and exercise 523 cell-traversed shrub rays.
-- A seed-884 survey checks 2,286 shrubs for habitat, cell bounds and rebasing; 2,243 test rays hit branches or foliage.
-- The coastal survey finds 1,367 raised offshore samples and an exposed bar around 1.55 m above mean water level.
-- Existing dense terrain traversal fixtures still have zero hit/miss mismatches; maximum distance difference is below 0.54 m.
-- The browser's GPU checks include shrub-cache rebasing in addition to the ocean and terrain checks.
-
-The Scrub and Sandbars presets are composed for seed 884. Other seeds can place their islands differently.
-
-The local Edge preview passed all ten GPU checks, including the new habitat-cache check. The actual rendered sandbar and foliage views were visually inspected. A cold startup during testing took about 100 seconds to compile the viewing pipelines; later loads can reuse driver caches. This remains an optimisation target. Background-tab FPS is throttled, so those readings are not used as an interactive performance claim. The pre-existing hosted software-adapter CI failure is still documented in the coastal-light notes.
+- Node checks cover source hashes, baseline WebGPU resource limits, frame cache invalidation and existing controls.
+- Native CUDA checks compare all 4,096 habitat cache entries with direct generation, ray/card traversal and origin rebasing.
+- Atlas checks verify transparent borders and conservation of coverage through mipmaps.
+- Distant crown checks exercise vegetation beyond the card and cache ranges.
+- Offshore surveys verify raised seabed stays submerged while deeper channels remain.
+- Real-browser validation checks shader compilation, rendering and the existing GPU fixtures.

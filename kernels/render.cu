@@ -24,7 +24,7 @@ __global__ void reflectOcean(const float* C,const int* Origin,const float* Shrub
  float3 n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),rd=cameraRay(C,px,py,width,height),sun=sunDirection(C);
  float3 rr=rd-n*(2*dot3(rd,n)),ro=make_float3(C[0],C[1],C[2])+rd*Hit[b]+n*.3f;
  float3 reflected=skyReflection(rr,sun,Hit[b+3]);float cone=1.05f/(float)height,rt=traceLand(ro,rr,Origin,6500,cone);
- if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 ln=groundNormal(p,Origin,fp);float shadow=terrainShadow(p+ln*.4f,sun,Origin,fp);float3 land=landColor(p,ln,sun,Origin,fp)*shadow;
+ if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 ln=groundNormal(p,Origin,fp);float shadow=terrainShadow(p+ln*.4f,sun,Origin,fp);float3 land=shrubGround(landColor(p,ln,sun,Origin,fp),p,ln,sun,Origin,Shrubs,fp,Hit[b]+rt)*shadow;
  land=wetSandSheen(land,p,ln,rr,sun,Origin,fp,shadow);land=aerialPerspective(land,ro,rr,rt,sun);reflected=mix3(land,reflected,smoothf(4800,6500,Hit[b]));}
  if(Hit[b]<180){float4 shrub=traceShrubs(ro,rr,Origin,Shrubs,rt>0?rt:6500,C[5],C[6],cone);
   if(shrub.x<(rt>0?rt:6500)){float3 p=ro+rr*shrub.x,ln=make_float3(shrub.y,shrub.z,shrub.w);reflected=aerialPerspective(shrubColor(p,ln,rr,sun,Origin,Shrubs,fmaxf(.005f,(Hit[b]+shrub.x)*cone)),ro,rr,shrub.x,sun);}}
@@ -66,7 +66,7 @@ __device__ float waterFoam(float3 p,float3 n,float depth,float fp,float time,flo
  float wb=weight(fp,.25f),wf=weight(fp,1),broad=.5f,fine=.5f;
  if(wb>0)broad+=(foamNoise(p.x+time*.32f,p.z-time*.13f,4,Origin)-.5f)*wb;
  if(wf>0)fine+=(foamNoise(p.x-time*.18f,p.z+time*.24f,1,Origin)-.5f)*wf;
- float stillDepth=fmaxf(0,depth-p.y),shore=1-smoothf(.35f,3.2f+wind*.65f,stillDepth);
+ float stillDepth=fmaxf(0,depth-p.y),shore=1-smoothf(.35f,1.35f+wind*.35f,stillDepth);
  float phase=stillDepth*2.35f+time*1.22f+(broad-.5f)*2.3f;
  float front=powf(sat(.5f+.5f*sinf(phase)),10);
  float backwash=powf(sat(.5f+.5f*sinf(phase-1.05f)),3)*.32f;
@@ -127,8 +127,8 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,
  float t=Hit[b],material=Hit[b+1],fp=Hit[b+2];float3 p=ro+rd*t,n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),color=make_float3(0,0,0);
  // Sky/cloud evaluation is only needed when it survives the material branch.
  if(material==0)color=sky(rd,sun);
- if(material==1){float shadow=terrainShadow(p+n*.4f,sun,Origin,fp)*shrubContact(p,Origin,Shrubs,fp);color=landColor(p,n,sun,Origin,fp)*shadow;color=wetSandSheen(color,p,n,rd,sun,Origin,fp,shadow);}
- if(material==3)color=shrubColor(p,n,rd,sun,Origin,Shrubs,fp)*terrainShadow(p+n*.1f,sun,Origin,fp);
+ if(material==1){float shadow=terrainShadow(p+n*.4f,sun,Origin,fp)*shrubContact(p,Origin,Shrubs,fp);color=shrubGround(landColor(p,n,sun,Origin,fp),p,n,sun,Origin,Shrubs,fp,t)*shadow;color=wetSandSheen(color,p,n,rd,sun,Origin,fp,shadow);}
+ if(material==3){color=shrubColor(p,n,rd,sun,Origin,Shrubs,fp)*terrainShadow(p+make_float3(0,.1f,0),sun,Origin,fp);n=norm3(make_float3(-rd.x,.6f,-rd.z));}
  if(material==2){
   float nv=sat(-dot3(n,rd)),fresnel=waterFresnel(nv);float3 rr=rd-n*(2*dot3(rd,n)),reflected=make_float3(0,0,0);
   if(C[9]>.5f&&t<6500&&Reflection[b+3]>0)reflected=filteredReflection(x,y,width,height,Hit,Surface,Reflection);
