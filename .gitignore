@@ -1,0 +1,15 @@
+.reference/
+generated/
+.build-generated/
+Stratum.cu
+Water.cu
+node_modules/
+artifacts/
+*.log
+
+.env
+.env.*
+!.env.example
+.city-shader-cache/
+.DS_Store
+Thumbs.db
