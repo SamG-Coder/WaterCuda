@@ -19,6 +19,32 @@ __global__ void reflectOcean(const float* C,const int* Origin,const float* Hit,c
  if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 land=landColor(p,groundNormal(p,Origin,fp),sun,Origin,fp);float fade=fmaxf(smoothf(4800,6500,Hit[b]),1-expf(-rt*.00008f));reflected=mix3(land,reflected,fade);}
  Reflection[o]=reflected.x;Reflection[o+1]=reflected.y;Reflection[o+2]=reflected.z;Reflection[o+3]=Hit[b];
 }
+// Integer world lattice keeps foam fixed to the world during origin rebasing.
+// Wavelengths divide CELL exactly; integer hashing never sees huge float positions.
+__device__ float foamNoise(float x,float z,int wavelength,const int* Origin){
+ float u=x/(float)wavelength,v=z/(float)wavelength,fx=fractf(u),fz=fractf(v);
+ unsigned int stride=(unsigned int)(CELL/(float)wavelength);
+ unsigned int ix=(unsigned int)(int)floorf(u)+(unsigned int)Origin[0]*stride;
+ unsigned int iz=(unsigned int)(int)floorf(v)+(unsigned int)Origin[1]*stride;
+ unsigned int seed=(unsigned int)Origin[2]+673u;
+ fx=fx*fx*(3-2*fx);fz=fz*fz*(3-2*fz);
+ return lerpf(lerpf(hash2((int)ix,(int)iz,seed),hash2((int)(ix+1u),(int)iz,seed),fx),lerpf(hash2((int)ix,(int)(iz+1u),seed),hash2((int)(ix+1u),(int)(iz+1u),seed),fx),fz);
+}
+__device__ float waterFoam(float3 p,float3 n,float depth,float fp,float time,float wind,const int* Origin){
+ float broad=.5f,fine=.5f,wb=weight(fp,.25f),wf=weight(fp,1);
+ if(wb>0)broad+=(foamNoise(p.x+time*.45f,p.z,4,Origin)-.5f)*wb;
+ if(wf>0)fine+=(foamNoise(p.x,p.z-time*.22f,1,Origin)-.5f)*wf;
+ float pattern=broad*.7f+fine*.3f;
+ float shore=1-smoothf(.15f,2.4f+wind*.8f,depth);
+ float pulse=sinf(depth*2.1f-time*1.6f+pattern*3);
+ float wash=smoothf(.25f,.9f,pulse)*smoothf(.25f,.7f,pattern);
+ // Fade nonlinear foam detail toward average coverage when it becomes subpixel.
+ wash=lerpf(.14f,wash,weight(fp,.25f));
+ float slope=sqrtf(n.x*n.x+n.z*n.z)/fmaxf(n.y,.1f);
+ float crest=smoothf(.25f*wind,1.1f*wind+.1f,p.y)*smoothf(.30f,.55f,slope);
+ float breaking=crest*lerpf(.22f,smoothf(.45f,.75f,pattern),wb)*.32f;
+ return sat(shore*wash+breaking);
+}
 __global__ void shadeOcean(const float* C,const int* Origin,const float* Hit,const float* Surface,const float* Reflection,unsigned int* Pixels,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
  float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height),sun=sunDirection(C);
@@ -52,9 +78,7 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Hit,con
   float rough=.085f+.018f*C[6]+sqrtf(Hit[b+3])*.6f,a2=rough*rough,den=nh*nh*(a2-1)+1;
   float D=a2/(PI*den*den),gv=2*nv/(nv+sqrtf(a2+(1-a2)*nv*nv)+.0001f),gl=2*nl/(nl+sqrtf(a2+(1-a2)*nl*nl)+.0001f),F=.0204f+.9796f*powf(1-vh,5);
   color=color+make_float3(1,.85f,.65f)*(D*gv*gl*F/(4*fmaxf(nv,.03f)))*1.9f;
-  float shore=1-smoothf(.15f,3.2f,depth),pattern=noise2(p.x*.32f+C[5]*.18f,p.z*.32f)*.65f+noise2(p.x*.9f,p.z*.9f)*.35f;
-  float pulse=sinf(depth*2.1f-C[5]*1.6f+pattern*3),foam=shore*smoothf(.25f,.9f,pulse)*smoothf(.25f,.7f,pattern);
-  float slope=sqrtf(n.x*n.x+n.z*n.z)/fmaxf(n.y,.1f);foam+=smoothf(.3f,.55f,slope)*smoothf(.5f,.8f,pattern)*.24f;
+  float foam=waterFoam(p,n,depth,fp,C[5],C[6],Origin);
   color=mix3(color,make_float3(.62f,.71f,.68f),sat(foam));
  }
  if(material>0)color=mix3(color,sky(norm3(make_float3(rd.x,.018f,rd.z)),sun),1-expf(-t*.000042f));

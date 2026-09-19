@@ -39,6 +39,19 @@ int main(){
   for(int i=0;i<width*height;i++)if(ref[i*4+3]!=-1)return 11;
   std::cout<<"Per-pixel reflections: odd target coverage, dispatch guards and disabled state passed\n";
  }
+ // Foam phase must be continuous across both ordinary and remote origin shifts.
+ for(int remote:{0,100000000,-100000000}){
+  int origin[4]={remote,-remote,884,0},rebased[4]={remote+1,-remote-1,884,0};
+  for(int i=0;i<100;i++){
+   float3 p={4790+i*.25f,.8f,-10+i*.125f};float3 n=norm3(make_float3(.4f,1,.2f));
+   float f=waterFoam(p,n,1.2f,.1f,3,1,origin);
+   float shifted=waterFoam(p+make_float3(-CELL,0,CELL),n,1.2f,.1f,3,1,rebased);
+   if(!std::isfinite(f)||f<0||f>1||fabsf(f-shifted)>.002f)return 12;
+   if(waterFoam(make_float3(p.x,-1,p.z),n,45,.1f,3,1,origin)!=0)return 13;
+  }
+ }
+ {int o[4]={0,0,884,0};float a=waterFoam(make_float3(1,0,2),make_float3(0,1,0),1,8,0,1,o),b=waterFoam(make_float3(300,0,900),make_float3(0,1,0),1,8,300,1,o);if(fabsf(a-b)>.0001f)return 14;}
+ std::cout<<"300 foam samples: rebasing, range, trough rejection and distant coverage passed\n";
  // Enlarged islands must stay inside their cells and the traversal height cap.
  for(int seed=0;seed<100;seed++){
   int o[4]={0,0,seed,0};Island a=describeIsland(0,0,o);
