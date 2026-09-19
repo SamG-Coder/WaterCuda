@@ -16,7 +16,7 @@ __global__ void reflectOcean(const float* C,const int* Origin,const float* Hit,c
  float3 n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),rd=cameraRay(C,px,py,width,height),sun=sunDirection(C);
  float3 rr=rd-n*(2*dot3(rd,n)),ro=make_float3(C[0],C[1],C[2])+rd*Hit[b]+n*.3f;
  float3 reflected=sky(rr,sun);float cone=1.05f/(float)height,rt=traceLand(ro,rr,Origin,6500,cone);
- if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 land=landColor(p,groundNormal(p,Origin,fp),sun,Origin,fp);float fade=fmaxf(smoothf(4800,6500,Hit[b]),1-expf(-rt*.00008f));reflected=mix3(land,reflected,fade);}
+ if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 land=landColor(p,groundNormal(p,Origin,fp),sun,Origin,fp);land=aerialPerspective(land,ro,rr,rt,sun);reflected=mix3(land,reflected,smoothf(4800,6500,Hit[b]));}
  Reflection[o]=reflected.x;Reflection[o+1]=reflected.y;Reflection[o+2]=reflected.z;Reflection[o+3]=Hit[b];
 }
 // Small same-frame reconstruction filter; no temporal history or extra ray queries.
@@ -116,7 +116,7 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Hit,con
   float foam=waterFoam(p,n,depth,fp,C[5],C[6],Origin);
   color=mix3(color,make_float3(.62f,.71f,.68f),sat(foam));
  }
- if(material>0)color=mix3(color,sky(norm3(make_float3(rd.x,.018f,rd.z)),sun),1-expf(-t*.000042f));
+ if(material>0)color=aerialPerspective(color,ro,rd,t,sun);
  if(C[10]==1&&material>0){float level=log2f(fmaxf(1,fp));color=mix3(make_float3(.1f,.8f,.6f),make_float3(.9f,.25f,.12f),sat(level/6));}
  if(C[10]==2&&material>0)color=(n+make_float3(1,1,1))*.5f;
  color=color*C[11];color=make_float3(powf(aces(color.x),.4545f),powf(aces(color.y),.4545f),powf(aces(color.z),.4545f));Pixels[y*width+x]=pack(color);

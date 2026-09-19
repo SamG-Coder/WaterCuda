@@ -28,6 +28,24 @@ __device__ float3 sky(float3 d,float3 sun){
  if(d.y>0.015f){float cx=d.x/d.y*1.8f,cz=d.z/d.y*1.8f;float cloud=noise2(cx*0.31f+6,cz*0.31f)*0.65f+noise2(cx*0.91f,cz*0.91f)*0.25f+noise2(cx*2.3f,cz*2.3f)*0.1f;c=mix3(c,make_float3(0.91f,0.94f,0.95f),smoothf(0.57f,0.77f,cloud)*smoothf(0.015f,0.12f,d.y)*0.7f);}
  return c;
 }
+// Analytic exponential-height haze: dense near sea level, clear at altitude.
+// Integrate along the whole segment, including downward aerial views.
+__device__ float hazeOpticalDepth(float fromHeight,float toHeight,float distance){
+ float a=clampf(fromHeight,-100,12000)/350,b=clampf(toHeight,-100,12000)/350,d=b-a;
+ float mean=fabsf(d)<.01f?expf(-(a+b)*.5f):(expf(-a)-expf(-b))/d;
+ return fmaxf(0,distance)*(.000015f+.000085f*mean);
+}
+__device__ float3 aerialPerspective(float3 color,float3 ro,float3 rd,float distance,float3 sun){
+ float transmission=expf(-hazeOpticalDepth(ro.y,ro.y+rd.y*distance,distance));
+ float3 horizon=norm3(make_float3(rd.x,.012f,rd.z));
+ float3 haze=sky(horizon,sun);
+ float forward=powf(sat(dot3(rd,sun)),8)*(1-smoothf(.15f,.8f,sun.y));
+ haze=mix3(haze,make_float3(.95f,.70f,.43f),forward*.22f);
+ float3 result=mix3(haze,color,transmission);
+ // Match sky rays continuously as geometry reaches the finite query limit.
+ if(distance>FAR*.8f)result=mix3(result,sky(rd,sun),smoothf(FAR*.8f,FAR,distance));
+ return result;
+}
 __device__ float aces(float x){return sat(x*(2.51f*x+0.03f)/(x*(2.43f*x+0.59f)+0.14f));}
 __device__ unsigned int pack(float3 c){return (unsigned int)(sat(c.x)*255.0f)|((unsigned int)(sat(c.y)*255.0f)<<8)|((unsigned int)(sat(c.z)*255.0f)<<16)|4278190080u;}
 __device__ float3 cameraRay(const float* C,int x,int y,int width,int height){

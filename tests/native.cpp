@@ -27,6 +27,22 @@ std::vector<float> cpuOcean(){
  return waves;
 }
 int main(){
+ // Compare closed-form height haze against independent midpoint integration.
+ for(int i=0;i<100;i++){
+  double a=(i%10)*170.0,b=(i/10)*110.0,length=100+i*170.0,sum=0;
+  for(int j=0;j<1024;j++){double h=a+(b-a)*(j+.5)/1024;sum+=.000015+.000085*std::exp(-h/350);}
+  double expected=sum*length/1024,actual=hazeOpticalDepth((float)a,(float)b,(float)length);
+  if(fabs(actual-expected)>std::max(.000002,expected*.0001))return 28;
+  float reverse=hazeOpticalDepth((float)b,(float)a,(float)length);
+  float split=hazeOpticalDepth((float)a,(float)((a+b)/2),(float)(length/2))+hazeOpticalDepth((float)((a+b)/2),(float)b,(float)(length/2));
+  if(fabs(actual-reverse)>.00001f||fabs(actual-split)>.00001f)return 29;
+ }
+ if(hazeOpticalDepth(0,0,1000)<=hazeOpticalDepth(1400,1400,1000)||hazeOpticalDepth(0,0,0)!=0)return 30;
+ {float3 ro={0,1400,0},rd=norm3(make_float3(.2f,-.05f,1)),sun=norm3(make_float3(.2f,.7f,1));
+  auto atLimit=aerialPerspective(make_float3(.05f,.1f,.2f),ro,rd,FAR,sun),background=sky(rd,sun);
+  if(fabsf(atLimit.x-background.x)>.00001f||fabsf(atLimit.y-background.y)>.00001f||fabsf(atLimit.z-background.z)>.00001f)return 31;
+ }
+ std::cout<<"Height haze: 100 numerical integral comparisons, segment splitting and altitude falloff passed\n";
  // Reflection filtering preserves constant fields and rejects unrelated surfaces.
  {std::vector<float> hit(36,0),surface(36,0),reflection(36,0);
   for(int i=0;i<9;i++){hit[i*4]=100;hit[i*4+1]=2;surface[i*4+1]=1;reflection[i*4]=.2f;reflection[i*4+1]=.3f;reflection[i*4+2]=.4f;reflection[i*4+3]=100;}
