@@ -54,7 +54,7 @@ try{
    const {engine,camera,origin,preset,setLook}=waterCuda;setLook(look);preset(view);camera[5]=time;if(clarity!==null)camera[12]=clarity;camera[13]=caustics;
    await engine.resize(640,360);
    if(!engine.frame(camera,origin))throw Error('Unexpected benchmark backpressure');await engine.runtime.idle();
-   const pixels=await engine.runtime.read(engine.pixels,Uint8Array);let sum=0,opaque=true;const colors=new Set();for(let i=0;i<pixels.length;i+=4){sum+=pixels[i]+pixels[i+1]+pixels[i+2];opaque&&=pixels[i+3]===255;if(i%16===0)colors.add((pixels[i]<<16)|(pixels[i+1]<<8)|pixels[i+2]);}
+   const pixels=await engine.readPixels();let sum=0,opaque=true;const colors=new Set();for(let i=0;i<pixels.length;i+=4){sum+=pixels[i]+pixels[i+1]+pixels[i+2];opaque&&=pixels[i+3]===255;if(i%16===0)colors.add((pixels[i]<<16)|(pixels[i+1]<<8)|pixels[i+2]);}
    const png=await engine.capture(),url=await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(png);});
    return {png:url.split(',')[1],sum,colors:colors.size,opaque,builds:engine.spectrumBuilds,updates:engine.oceanUpdates,errors:engine.errors};
   },{look,view,time,clarity,caustics});

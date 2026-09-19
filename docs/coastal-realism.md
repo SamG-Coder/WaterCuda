@@ -109,3 +109,12 @@ The Windows source-parser test uses `fileURLToPath`, and the browser fixture ser
 The integrated scene passed all nine built-in GPU checks in the desktop browser. Daylight coast, shallow water, caustics on/off, golden hour and stronger waterline waves were inspected at 1280 × 720 with approximately 60 FPS during those spot checks. These are not controlled before/after performance measurements. Caustic contrast was reduced after the close shoreline comparison to avoid overwhelming the visible seabed.
 
 The browser workflow runs on Windows using Chromium's system WebGPU backend. It logs the actual adapter before compiling any pipeline; native hardware FPS must not be inferred from a CI software adapter. The runner also accepts an explicit `CW_GPU_BACKEND=swiftshader` or `lavapipe`. Lavapipe selection is checked immediately because Linux Chromium can silently select SwiftShader when the Mesa adapter does not meet its presentation requirements. The full renderer/pixel assertions are identical across backends.
+# Publication validation
+
+The README cover is an actual 1280 × 720 GPU frame exported using **Save image**, seed 884, Coast view, Clear coast. No image assets are used to render the scene. The PNG is only documentation and social-preview artwork.
+
+The image exporter now reads the runtime's supported `Uint32Array` format and reinterprets the packed RGBA bytes. A byte-preservation regression test covers the fix; the exported PNG was opened and inspected.
+
+GitHub Pages deploys a curated static artifact with verified generated shaders, CUDA sources, runtime/compiler modules, and the reference fixture used by the browser GPU checks. The deployment runs all 16 Node tests before publishing.
+
+**Hosted GPU limitation:** the Windows validation run [35466905488](https://github.com/SamG-Coder/WaterCuda/actions/runs/35466905488) selected Microsoft's software WARP adapter. It compiled the scene pipelines but its GPU process crashed on rendering (`-1073741676`), so the end-to-end test failed. Earlier Linux SwiftShader runs also failed. These are unresolved software-adapter compatibility failures, not passing GPU CI. The full browser test and failure reports remain available; local browser GPU checks passed on this machine. Publication does not imply cross-device validation.

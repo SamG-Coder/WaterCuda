@@ -1,5 +1,11 @@
 # WaterCuda
 
+[![WaterCuda: a procedural island and spectral ocean, captured from the browser renderer](docs/images/watercuda-coast.png)](https://samg-coder.github.io/WaterCuda/?seed=884&view=coast&look=coastal)
+
+**[Open the live demo ↗](https://samg-coder.github.io/WaterCuda/?seed=884&view=coast&look=coastal)** · [Shallows](https://samg-coder.github.io/WaterCuda/?seed=884&view=shore&look=coastal) · [Golden hour](https://samg-coder.github.io/WaterCuda/?seed=884&view=coast&look=golden) · [Aerial](https://samg-coder.github.io/WaterCuda/?seed=884&view=aerial&look=coastal)
+
+The cover is an unedited 1280 × 720 frame exported from WaterCuda in the browser, seed 884, Clear coast. Click it to explore the same island. Use a recent Chrome or Edge with WebGPU support; the first GPU compilation can take a while.
+
 **Coastal light / 002:** shared solar lighting, FFT-driven shallow-water caustics,
 world-stable shore foam, clarity controls and cached Fourier evolution.
 See [the implementation and validation notes](docs/coastal-realism.md).
@@ -50,14 +56,14 @@ npm test
 npm run test:native
 ```
 
-`npm test` translates all ten CUDA entry points and runs fifteen Node tests for free flight, focus handling, diagonal speed, frame-rate independence, world rebasing, seed validation and render alignment, cached wave scheduling, sea looks, shader contracts and the browser fixture server. `test:native` needs a C++17 compiler (`g++`, or set `CXX`), checks terrain against dense traversal and computes an independent double-precision CPU inverse FFT. It regenerates `tests/ocean-reference.json`, used by browser GPU checks.
+`npm test` translates all ten CUDA entry points and runs sixteen Node tests for free flight, focus handling, diagonal speed, frame-rate independence, world rebasing, seed validation and render alignment, cached wave scheduling, sea looks, shader contracts and the browser fixture server. `test:native` needs a C++17 compiler (`g++`, or set `CXX`), checks terrain against dense traversal and computes an independent double-precision CPU inverse FFT. It regenerates `tests/ocean-reference.json`, used by browser GPU checks.
 
 Open `http://localhost:8090/?test=1` to execute nine GPU checks in the actual browser. They check cached/eager wave equivalence, determinism, terrain and wave rebasing, distant integer coordinates, seed variation, unresolved wave energy, agreement with the independent CPU FFT and WebGPU validation errors.
 
 Verified on this machine in the Chromium-based in-app browser:
 
 - All ten CUDA entry points translated and created working WebGPU pipelines.
-- Fifteen Node tests and nine browser GPU checks passed.
+- Sixteen Node tests and nine browser GPU checks passed.
 - 192 terrain rays across three occupied seeded islands plus 200 low-angle waterline hillside rays: zero hit/miss mismatches against 0.25 m dense traversal; maximum distance difference about 0.52 m.
 - 100 island seeds checked for terrain bounds and cell-edge continuity; 60 close material samples checked for finite output, rebasing stability and detail filtering.
 - 100 spectral-water rays: maximum surface-equation residual below 0.004 m.

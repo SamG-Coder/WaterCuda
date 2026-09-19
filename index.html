@@ -1,5 +1,13 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WaterCuda — Infinite islands</title><link rel="stylesheet" href="style.css"></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>WaterCuda — Infinite islands</title>
+ <meta name="description" content="Explore a procedural archipelago and spectral ocean. Authored in CUDA, running in your browser through WebGPU.">
+ <meta property="og:title" content="WaterCuda — Infinite islands">
+ <meta property="og:description" content="An endless archipelago. A living ocean. Explore the real-time CUDA / WebGPU renderer.">
+ <meta property="og:type" content="website">
+ <meta property="og:url" content="https://samg-coder.github.io/WaterCuda/">
+ <meta property="og:image" content="https://samg-coder.github.io/WaterCuda/docs/images/watercuda-coast.png">
+ <meta name="twitter:card" content="summary_large_image">
+ <link rel="stylesheet" href="style.css"></head>
 <body>
  <canvas id="view" aria-label="Procedural archipelago. Drag to look, WASD to fly."></canvas>
  <header class="hud"><a class="brand" href="./"><span class="mark">≈</span> WATER<span>CUDA</span></a><span class="edition">COASTAL LIGHT / 002</span><button id="hide" class="round" title="Hide interface (H)">↗</button></header>
@@ -16,6 +24,7 @@
   <div class="views"><button data-view="coast" class="selected">Coast</button><button data-view="aerial">Aerial</button><button data-view="water">Waterline</button><button data-view="shore">Shallows</button></div>
   <button id="fly" class="flight-button">Free camera · F</button><small id="flightStatus">DRAG TO LOOK · F FOR MOUSE LOOK</small><button id="sail" class="primary">Begin drift <span>→</span></button>
   <div class="secondary"><button id="pause">Pause ocean</button><button id="capture">Save image</button></div>
+  <p class="project-links"><a href="https://github.com/SamG-Coder/WaterCuda" target="_blank" rel="noopener">GitHub ↗</a> · <a href="https://github.com/SamG-Coder/WaterCuda#explore" target="_blank" rel="noopener">Controls &amp; README ↗</a></p>
   <details><summary>Under the surface</summary><p>CUDA source → WebGPU compute. Deterministic island cells, floating origin, filtered terrain and wave detail. No image or mesh assets. Sunlight, foam and shallow-water optics are generated in CUDA.</p><div class="control-row"><label for="caustics">FFT-driven caustics</label><input id="caustics" type="checkbox" checked></div><label for="debug">Inspect detail</label><select id="debug"><option value="0">Natural</option><option value="1">Pixel footprint</option><option value="2">Surface normals</option></select><button id="validate">Run GPU checks</button><pre id="checks"></pre><pre id="timings"></pre></details>
  </aside>
  <footer class="hud"><div class="keys"><b>W A S D</b> fly <i></i><b>DRAG</b> look <i></i><b>Q / E</b> descend / rise <i></i><b>SHIFT</b> boost</div><div class="performance"><span id="fps">— FPS</span><span id="resolution">CUDA / WEBGPU</span></div></footer>

@@ -3,6 +3,15 @@ import assert from 'node:assert/strict';
 import {Engine} from '../src/engine.js';
 import {SEA_LOOKS,applySeaLook} from '../src/sea-looks.js';
 
+test('pixel export reads supported 32-bit words and preserves every RGBA byte',async()=>{
+ const e=new Engine();e.pixels={};let idle=false;
+ e.runtime={idle:async()=>{idle=true;},read:async(buffer,Type)=>{
+  assert.equal(idle,true);assert.equal(buffer,e.pixels);assert.equal(Type,Uint32Array);
+  return new Uint32Array([0xff332211,0xffccbbaa]);
+ }};
+ assert.deepEqual([...await e.readPixels()],[17,34,51,255,170,187,204,255]);
+});
+
 function fakeEngine(){
  const e=new Engine(),dispatches=[];
  const encoder={copyBufferToTexture(){}};
