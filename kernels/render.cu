@@ -7,8 +7,16 @@ __global__ void tracePrimary(const float* C,const int* Origin,const float* Waves
  else if(wt>0){t=wt;material=2;fp=fmaxf(.12f,t*cone/fmaxf(.08f,-rd.y));float3 p=ro+rd*t;float4 w=ocean(p.x,p.z,fp,Waves,Origin);n=norm3(make_float3(-w.y,1,-w.z));variance=w.w;depth=fmaxf(0,p.y-ground(p.x,p.z,Origin,fp));}
  Hit[b]=t;Hit[b+1]=material;Hit[b+2]=fp;Hit[b+3]=variance;Surface[b]=n.x;Surface[b+1]=n.y;Surface[b+2]=n.z;Surface[b+3]=depth;
 }
+// Keep the foliage loops out of the terrain/water traversal pipeline. This also
+// makes vegetation work a separate bounded dispatch with the existing hit buffers.
+__global__ void traceVegetation(const float* C,const int* Origin,const float* Shrubs,float* Hit,float* Surface,int width,int height){
+ int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
+ float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height);float cone=1.05f/(float)height;
+ float4 shrub=traceShrubs(ro,rd,Origin,Shrubs,Hit[b],C[5],C[6],cone);
+ if(shrub.x<Hit[b]){Hit[b]=shrub.x;Hit[b+1]=3;Hit[b+2]=fmaxf(.005f,shrub.x*cone);Hit[b+3]=0;Surface[b]=shrub.y;Surface[b+1]=shrub.z;Surface[b+2]=shrub.w;Surface[b+3]=0;}
+}
 // Trace each visible water pixel using its own normal; no half-resolution cells.
-__global__ void reflectOcean(const float* C,const int* Origin,const float* Hit,const float* Surface,float* Reflection,int width,int height){
+__global__ void reflectOcean(const float* C,const int* Origin,const float* Shrubs,const float* Hit,const float* Surface,float* Reflection,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;
  int px=x,py=y,b=(y*width+x)*4,o=b;
  Reflection[o]=0;Reflection[o+1]=0;Reflection[o+2]=0;Reflection[o+3]=-1;
@@ -18,6 +26,8 @@ __global__ void reflectOcean(const float* C,const int* Origin,const float* Hit,c
  float3 reflected=skyReflection(rr,sun,Hit[b+3]);float cone=1.05f/(float)height,rt=traceLand(ro,rr,Origin,6500,cone);
  if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 ln=groundNormal(p,Origin,fp);float shadow=terrainShadow(p+ln*.4f,sun,Origin,fp);float3 land=landColor(p,ln,sun,Origin,fp)*shadow;
  land=wetSandSheen(land,p,ln,rr,sun,Origin,fp,shadow);land=aerialPerspective(land,ro,rr,rt,sun);reflected=mix3(land,reflected,smoothf(4800,6500,Hit[b]));}
+ if(Hit[b]<180){float4 shrub=traceShrubs(ro,rr,Origin,Shrubs,rt>0?rt:6500,C[5],C[6],cone);
+  if(shrub.x<(rt>0?rt:6500)){float3 p=ro+rr*shrub.x,ln=make_float3(shrub.y,shrub.z,shrub.w);reflected=aerialPerspective(shrubColor(p,ln,rr,sun,Origin,Shrubs,fmaxf(.005f,(Hit[b]+shrub.x)*cone)),ro,rr,shrub.x,sun);}}
  Reflection[o]=reflected.x;Reflection[o+1]=reflected.y;Reflection[o+2]=reflected.z;Reflection[o+3]=Hit[b];
 }
 // Small same-frame reconstruction filter; no temporal history or extra ray queries.
@@ -111,13 +121,14 @@ __device__ float bedDetailWeight(float viewPath,float depth,float sunY){
  float path=fmaxf(0,viewPath)+sunWaterPath(depth,sunY);
  return smoothf(.04f,.12f,expf(-path*.038f));
 }
-__global__ void shadeOcean(const float* C,const int* Origin,const float* Hit,const float* Surface,const float* Reflection,const float* Waves,unsigned int* Pixels,int width,int height){
+__global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,const float* Hit,const float* Surface,const float* Reflection,const float* Waves,unsigned int* Pixels,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
  float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height),sun=sunDirection(C);
  float t=Hit[b],material=Hit[b+1],fp=Hit[b+2];float3 p=ro+rd*t,n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),color=make_float3(0,0,0);
  // Sky/cloud evaluation is only needed when it survives the material branch.
- if(material!=1&&material!=2)color=sky(rd,sun);
- if(material==1){float shadow=terrainShadow(p+n*.4f,sun,Origin,fp);color=landColor(p,n,sun,Origin,fp)*shadow;color=wetSandSheen(color,p,n,rd,sun,Origin,fp,shadow);}
+ if(material==0)color=sky(rd,sun);
+ if(material==1){float shadow=terrainShadow(p+n*.4f,sun,Origin,fp)*shrubContact(p,Origin,Shrubs,fp);color=landColor(p,n,sun,Origin,fp)*shadow;color=wetSandSheen(color,p,n,rd,sun,Origin,fp,shadow);}
+ if(material==3)color=shrubColor(p,n,rd,sun,Origin,Shrubs,fp)*terrainShadow(p+n*.1f,sun,Origin,fp);
  if(material==2){
   float nv=sat(-dot3(n,rd)),fresnel=waterFresnel(nv);float3 rr=rd-n*(2*dot3(rd,n)),reflected=make_float3(0,0,0);
   if(C[9]>.5f&&t<6500&&Reflection[b+3]>0)reflected=filteredReflection(x,y,width,height,Hit,Surface,Reflection);

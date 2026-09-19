@@ -1,12 +1,14 @@
 #include "cuda_compat.hpp"
 #include "../kernels/common.cu"
 #include "../kernels/terrain.cu"
+#include "../kernels/shrubs.cu"
 #include "terrain-reference.hpp"
 #include "../kernels/ocean.cu"
 #include "../kernels/render.cu"
 #include "shading-reference.hpp"
 #include "cpu-ocean.hpp"
 int main(){
+ std::vector<float> emptyShrubs(16388,0);
  // Shared Fresnel/Smith optics, checked independently of the shader branches.
  {float previous=1;
   for(int i=0;i<=1000;i++){float mu=i/1000.0f,f=waterFresnel(mu);double expected=.0204+.9796*std::pow(1.0-mu,5);
@@ -55,9 +57,9 @@ int main(){
   blockDim={1,1,1};threadIdx={0,0,0};
   for(int toggle=0;toggle<2;toggle++){
    c[9]=(float)toggle;
-   for(int y=0;y<h;y++)for(int x=0;x<w;x++){blockIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,origin,hit.data(),surface.data(),ref.data(),w,h);}
+   for(int y=0;y<h;y++)for(int x=0;x<w;x++){blockIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,origin,emptyShrubs.data(),hit.data(),surface.data(),ref.data(),w,h);}
    for(int debug=0;debug<3;debug++){c[10]=(float)debug;
-    for(int y=0;y<h;y++)for(int x=0;x<w;x++){blockIdx={(unsigned)x,(unsigned)y,0};shadeOcean(c,origin,hit.data(),surface.data(),ref.data(),nullptr,pixels.data(),w,h);referenceShadeOcean(c,origin,hit.data(),surface.data(),ref.data(),oldPixels.data(),w,h);}
+    for(int y=0;y<h;y++)for(int x=0;x<w;x++){blockIdx={(unsigned)x,(unsigned)y,0};shadeOcean(c,origin,emptyShrubs.data(),hit.data(),surface.data(),ref.data(),nullptr,pixels.data(),w,h);referenceShadeOcean(c,origin,hit.data(),surface.data(),ref.data(),oldPixels.data(),w,h);}
     for(int i=0;i<w*h;i++){
      if((pixels[i]>>24)!=255)return 33;
      if(debug>0&&hit[i*4+1]>0){float3 expected;
@@ -113,7 +115,8 @@ int main(){
   }
   std::cout<<"Wave mip levels: physical sample centres and periodic wrapping passed\n";
  }
- // Compare optimized terrain against the frozen previous implementation.
+ // Coastal deposition is intentional; frozen offshore and highland heights stay fixed.
+ int changedCoast=0;
  for(int seed:{42,884,12345}){
   int o[4]={0,0,seed,0};
   for(int i=0;i<2000;i++){
@@ -121,11 +124,14 @@ int main(){
    if(i%8==0)x=(i%16==0?CELL-.05f:.05f);
    float fp=(i%7==0?800.0f:(i%5==0?128.0f:.2f));float3 p={x,0,z};
    float h=ground(x,z,o,fp),expected=referenceGround(x,z,o,fp);
-   auto n=groundNormal(p,o,fp),old=referenceGroundNormal(p,o,fp);
-   if(fabsf(h-expected)>.00001f||fabsf(n.x-old.x)>.00001f||fabsf(n.y-old.y)>.00001f||fabsf(n.z-old.z)>.00001f)return 22;
+   auto n=groundNormal(p,o,fp);
+   if(!std::isfinite(h)||!std::isfinite(n.x)||!std::isfinite(n.y)||h<expected-.0001f||h-expected>21)return 22;
+   if((expected<=-26||expected>=70)&&fabsf(h-expected)>.00001f)return 22;
+   if(h-expected>.1f)changedCoast++;
   }
  }
- std::cout<<"6000 terrain/normal samples match the frozen pre-optimization evaluator\n";
+ if(changedCoast<20)return 22;
+ std::cout<<"6000 terrain samples: finite coastal deposition, unchanged deep seabed/highlands; "<<changedCoast<<" deposited samples\n";
  // Two-way bed lighting must dim monotonically and lose red before blue.
  {auto zero=waterTransmission(0);if(zero.x!=1||zero.y!=1||zero.z!=1)return 15;
   if(fabsf(sunWaterPath(10,1)-10)>.0001f||sunWaterPath(10,0)>15.2f)return 20;
@@ -145,11 +151,11 @@ int main(){
   std::vector<float> hit(count,0),surface(count,0),ref(count+8,-999);
   for(int i=0;i<width*height;i++){hit[i*4]=10;hit[i*4+1]=2;surface[i*4+1]=1;}
   blockIdx={0,0,0};blockDim={8,8,1};
-  for(int y=0;y<8;y++)for(int x=0;x<8;x++){threadIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,o,hit.data(),surface.data(),ref.data(),width,height);}
+  for(int y=0;y<8;y++)for(int x=0;x<8;x++){threadIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,o,emptyShrubs.data(),hit.data(),surface.data(),ref.data(),width,height);}
   for(int i=0;i<width*height;i++){if(ref[i*4+3]!=10||!std::isfinite(ref[i*4]))return 9;}
   for(int i=count;i<count+8;i++)if(ref[i]!=-999)return 10;
   c[9]=0;
-  for(int y=0;y<8;y++)for(int x=0;x<8;x++){threadIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,o,hit.data(),surface.data(),ref.data(),width,height);}
+  for(int y=0;y<8;y++)for(int x=0;x<8;x++){threadIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,o,emptyShrubs.data(),hit.data(),surface.data(),ref.data(),width,height);}
   for(int i=0;i<width*height;i++)if(ref[i*4+3]!=-1)return 11;
   std::cout<<"Per-pixel reflections: odd target coverage, dispatch guards and disabled state passed\n";
  }

@@ -2,6 +2,7 @@
 #include "cuda_compat.hpp"
 #include "../kernels/common.cu"
 #include "../kernels/terrain.cu"
+#include "../kernels/shrubs.cu"
 #include "../kernels/ocean.cu"
 #include "../kernels/render.cu"
 #include "cpu-ocean.hpp"
@@ -16,13 +17,14 @@ int main(int argc,char**argv){try{
  if(view=="water"){C[0]=1550;C[1]=7;C[2]=1100;C[3]=.52;C[4]=.025;}
  if(view=="sunset"){C[7]=1.05;C[8]=.16;C[6]=.65;}
  if(argc>5){C[0]=std::stof(argv[5]);C[1]=std::stof(argv[6]);C[2]=std::stof(argv[7]);C[3]=std::stof(argv[8]);C[4]=std::stof(argv[9]);}
+ std::vector<float> shrubs(16388);blockDim={1,1,1};threadIdx={0,0,0};for(int z=0;z<64;z++)for(int x=0;x<64;x++){blockIdx={(unsigned)x,(unsigned)z,0};cacheShrubs(C,O,shrubs.data());}
  auto waves=cpuOcean(C[5],C[6],seed);int count=width*height;std::vector<float> hit(count*4),surface(count*4),reflection(count*4);std::vector<unsigned int> pixels(count);
  #pragma omp parallel for
- for(int y=0;y<height;y++){blockDim={1,1,1};threadIdx={0,0,0};for(int x=0;x<width;x++){blockIdx={(unsigned)x,(unsigned)y,0};tracePrimary(C,O,waves.data(),hit.data(),surface.data(),width,height);}}
+ for(int y=0;y<height;y++){blockDim={1,1,1};threadIdx={0,0,0};for(int x=0;x<width;x++){blockIdx={(unsigned)x,(unsigned)y,0};tracePrimary(C,O,waves.data(),hit.data(),surface.data(),width,height);traceVegetation(C,O,shrubs.data(),hit.data(),surface.data(),width,height);}}
  #pragma omp parallel for
- for(int y=0;y<height;y++){blockDim={1,1,1};threadIdx={0,0,0};for(int x=0;x<width;x++){blockIdx={(unsigned)x,(unsigned)y,0};reflectOcean(C,O,hit.data(),surface.data(),reflection.data(),width,height);}}
+ for(int y=0;y<height;y++){blockDim={1,1,1};threadIdx={0,0,0};for(int x=0;x<width;x++){blockIdx={(unsigned)x,(unsigned)y,0};reflectOcean(C,O,shrubs.data(),hit.data(),surface.data(),reflection.data(),width,height);}}
  #pragma omp parallel for
- for(int y=0;y<height;y++){blockDim={1,1,1};threadIdx={0,0,0};for(int x=0;x<width;x++){blockIdx={(unsigned)x,(unsigned)y,0};shadeOcean(C,O,hit.data(),surface.data(),reflection.data(),waves.data(),pixels.data(),width,height);}}
+ for(int y=0;y<height;y++){blockDim={1,1,1};threadIdx={0,0,0};for(int x=0;x<width;x++){blockIdx={(unsigned)x,(unsigned)y,0};shadeOcean(C,O,shrubs.data(),hit.data(),surface.data(),reflection.data(),waves.data(),pixels.data(),width,height);}}
  std::ofstream out(argv[1],std::ios::binary);if(!out)throw std::runtime_error("Cannot open image output.");out<<"P6\n"<<width<<" "<<height<<"\n255\n";
  for(auto p:pixels){char b[3]={(char)(p&255),(char)((p>>8)&255),(char)((p>>16)&255)};out.write(b,3);}std::cout<<"Rendered "<<argv[1]<<" (CPU reference)\n";
  return 0;
