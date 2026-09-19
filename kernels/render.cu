@@ -7,32 +7,17 @@ __global__ void tracePrimary(const float* C,const int* Origin,const float* Waves
  else if(wt>0){t=wt;material=2;fp=fmaxf(.12f,t*cone/fmaxf(.08f,-rd.y));float3 p=ro+rd*t;float4 w=ocean(p.x,p.z,fp,Waves,Origin);n=norm3(make_float3(-w.y,1,-w.z));variance=w.w;depth=fmaxf(0,p.y-ground(p.x,p.z,Origin,fp));}
  Hit[b]=t;Hit[b+1]=material;Hit[b+2]=fp;Hit[b+3]=variance;Surface[b]=n.x;Surface[b+1]=n.y;Surface[b+2]=n.z;Surface[b+3]=depth;
 }
-// One-quarter as many reflection rays; preserve coastline and normal discontinuities.
+// Trace each visible water pixel using its own normal; no half-resolution cells.
 __global__ void reflectOcean(const float* C,const int* Origin,const float* Hit,const float* Surface,float* Reflection,int width,int height){
- int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y),rw=(width+1)/2,rh=(height+1)/2;if(x>=rw||y>=rh)return;
- int px=(int)fminf((float)(x*2+1),(float)(width-1)),py=(int)fminf((float)(y*2+1),(float)(height-1)),b=(py*width+px)*4,o=(y*rw+x)*4;
+ int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;
+ int px=x,py=y,b=(y*width+x)*4,o=b;
  Reflection[o]=0;Reflection[o+1]=0;Reflection[o+2]=0;Reflection[o+3]=-1;
  if(Hit[b+1]!=2||C[9]<.5f||Hit[b]>6500)return;
  float3 n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),rd=cameraRay(C,px,py,width,height),sun=sunDirection(C);
  float3 rr=rd-n*(2*dot3(rd,n)),ro=make_float3(C[0],C[1],C[2])+rd*Hit[b]+n*.3f;
- float3 reflected=sky(rr,sun);float cone=2.1f/(float)height,rt=traceLand(ro,rr,Origin,6500,cone);
+ float3 reflected=sky(rr,sun);float cone=1.05f/(float)height,rt=traceLand(ro,rr,Origin,6500,cone);
  if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 land=landColor(p,groundNormal(p,Origin,fp),sun,Origin,fp);float fade=fmaxf(smoothf(4800,6500,Hit[b]),1-expf(-rt*.00008f));reflected=mix3(land,reflected,fade);}
  Reflection[o]=reflected.x;Reflection[o+1]=reflected.y;Reflection[o+2]=reflected.z;Reflection[o+3]=Hit[b];
-}
-__device__ float3 gatherReflection(int x,int y,int width,int height,float t,float3 n,float3 fallback,const float* Surface,const float* Reflection){
- int rw=(width+1)/2,rh=(height+1)/2;float3 sum=make_float3(0,0,0);float weights=0;
- float gx=((float)x-1)*.5f,gy=((float)y-1)*.5f,fx=fractf(gx),fy=fractf(gy);
- for(int k=0;k<4;k++){
-  int xx=(int)clampf(floorf(gx)+(float)(k%2),0,(float)(rw-1)),yy=(int)clampf(floorf(gy)+(float)(k/2),0,(float)(rh-1));int j=(yy*rw+xx)*4;
-  int px=(int)fminf((float)(xx*2+1),(float)(width-1)),py=(int)fminf((float)(yy*2+1),(float)(height-1)),hb=(py*width+px)*4;
-  float dep=Reflection[j+3];float3 nn=make_float3(Surface[hb],Surface[hb+1],Surface[hb+2]);
-  float tolerance=fmaxf(3,t*.04f),compatibility=smoothf(.65f,.98f,dot3(n,nn));
-  float bilinear=(k%2==0?1-fx:fx)*(k/2==0?1-fy:fy);
-  if(dep>0){float w=bilinear*compatibility*(1-smoothf(0,tolerance,fabsf(dep-t)));sum=sum+make_float3(Reflection[j],Reflection[j+1],Reflection[j+2])*w;weights+=w;}
- }
- // Preserve continuous coverage: rejected samples fade to sky instead of snapping
- // from a renormalized island reflection to sky at a half-resolution cell boundary.
- return sum+fallback*(1-sat(weights));
 }
 __global__ void shadeOcean(const float* C,const int* Origin,const float* Hit,const float* Surface,const float* Reflection,unsigned int* Pixels,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
@@ -41,7 +26,7 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Hit,con
  if(material==1)color=landColor(p,n,sun,Origin,fp)*terrainShadow(p+n*.4f,sun,Origin,fp);
  if(material==2){
   float nv=sat(-dot3(n,rd)),fresnel=.0204f+.9796f*powf(1-nv,5);float3 rr=rd-n*(2*dot3(rd,n)),reflected=sky(rr,sun);
-  if(C[9]>.5f&&t<6500)reflected=gatherReflection(x,y,width,height,t,n,reflected,Surface,Reflection);
+  if(C[9]>.5f&&t<6500){if(Reflection[b+3]>0)reflected=make_float3(Reflection[b],Reflection[b+1],Reflection[b+2]);}
   float depth=Surface[b+3],eta=.75019f,k=1-eta*eta*(1-nv*nv);float3 refracted=rd*eta+n*(eta*nv-sqrtf(fmaxf(0,k)));
   float travel=fminf(200,depth/fmaxf(.15f,-refracted.y));float3 bp=p+refracted*travel,bottom=make_float3(.34f,.30f,.20f);
   if(depth<60){

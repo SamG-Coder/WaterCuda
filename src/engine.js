@@ -21,7 +21,7 @@ export class Engine{
   this.width=width;this.height=height;this.canvas.width=width;this.canvas.height=height;
   this.pixels=this.runtime.createBuffer(width*height*4,{label:'CUDA output'});
   this.hit=this.runtime.createBuffer(width*height*16,{label:'Primary visibility'});this.surface=this.runtime.createBuffer(width*height*16,{label:'Normals and depth'});
-  this.reflection=this.runtime.createBuffer(Math.ceil(width/2)*Math.ceil(height/2)*16,{label:'Half-resolution reflections'});
+  this.reflection=this.runtime.createBuffer(width*height*16,{label:'Per-pixel reflections'});
   this.context.configure({device:this.device,format:'rgba8unorm',usage:GPUTextureUsage.COPY_DST|GPUTextureUsage.RENDER_ATTACHMENT,alphaMode:'opaque'});
   const buffers={C:this.camera,Origin:this.origin,Waves:this.waves,Hit:this.hit,Surface:this.surface,Reflection:this.reflection,Pixels:this.pixels};this.calls={};
   for(const name of ['tracePrimary','reflectOcean','shadeOcean']){const kernel=this.kernels[name];this.calls[name]=kernel.bind(Object.fromEntries(kernel.artifact.metadata.bindings.map(b=>[b.name,buffers[b.name]])),{width,height});}
@@ -37,7 +37,7 @@ export class Engine{
   if(this.pending>=2)return false;
   const start=performance.now();this.runtime.write(this.camera,camera);this.runtime.write(this.origin,origin);
   const timed=!!this.queries&&!this.timingBusy&&this.frames%30===0;
-  const stages=[['spectrum',[]],['tracePrimary',[Math.ceil(this.width/8),Math.ceil(this.height/8)]],['reflectOcean',[Math.ceil(this.width/16),Math.ceil(this.height/16)]],['shadeOcean',[Math.ceil(this.width/8),Math.ceil(this.height/8)]]];
+  const stages=[['spectrum',[]],['tracePrimary',[Math.ceil(this.width/8),Math.ceil(this.height/8)]],['reflectOcean',[Math.ceil(this.width/8),Math.ceil(this.height/8)]],['shadeOcean',[Math.ceil(this.width/8),Math.ceil(this.height/8)]]];
   let batch=this.runtime.batch(timed?{timestampWrites:{querySet:this.queries,beginningOfPassWriteIndex:0,endOfPassWriteIndex:1}}:{});
   for(let i=0;i<stages.length;i++){if(i&&timed){batch.submit();batch=this.runtime.batch({timestampWrites:{querySet:this.queries,beginningOfPassWriteIndex:i*2,endOfPassWriteIndex:i*2+1}});}const [name,groups]=stages[i];if(i===0){for(const [call,g] of this.oceanCalls)batch.dispatch(call,g);}else batch.dispatch(this.calls[name],groups);}
   batch.endPass();

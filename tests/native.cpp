@@ -2,6 +2,7 @@
 #include "../kernels/common.cu"
 #include "../kernels/terrain.cu"
 #include "../kernels/ocean.cu"
+#include "../kernels/render.cu"
 #include <complex>
 #include <iomanip>
 // Independent CPU complex transform, compared with GPU samples by the browser checks.
@@ -25,6 +26,19 @@ std::vector<float> cpuOcean(){
  return waves;
 }
 int main(){
+ // Odd-sized reflection targets exercise the final row/column and padded dispatch.
+ {const int width=5,height=3,count=width*height*4;float c[16]={0,600,0,0,-.6f,0,1,-.7f,.7f,1,0,1};int o[4]={0,0,42,0};
+  std::vector<float> hit(count,0),surface(count,0),ref(count+8,-999);
+  for(int i=0;i<width*height;i++){hit[i*4]=10;hit[i*4+1]=2;surface[i*4+1]=1;}
+  blockIdx={0,0,0};blockDim={8,8,1};
+  for(int y=0;y<8;y++)for(int x=0;x<8;x++){threadIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,o,hit.data(),surface.data(),ref.data(),width,height);}
+  for(int i=0;i<width*height;i++){if(ref[i*4+3]!=10||!std::isfinite(ref[i*4]))return 9;}
+  for(int i=count;i<count+8;i++)if(ref[i]!=-999)return 10;
+  c[9]=0;
+  for(int y=0;y<8;y++)for(int x=0;x<8;x++){threadIdx={(unsigned)x,(unsigned)y,0};reflectOcean(c,o,hit.data(),surface.data(),ref.data(),width,height);}
+  for(int i=0;i<width*height;i++)if(ref[i*4+3]!=-1)return 11;
+  std::cout<<"Per-pixel reflections: odd target coverage, dispatch guards and disabled state passed\n";
+ }
  // Enlarged islands must stay inside their cells and the traversal height cap.
  for(int seed=0;seed<100;seed++){
   int o[4]={0,0,seed,0};Island a=describeIsland(0,0,o);

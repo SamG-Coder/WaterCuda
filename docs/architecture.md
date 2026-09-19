@@ -7,10 +7,10 @@ The reference project supplies a useful source-of-truth pattern: the same author
 1. JavaScript integrates input and rebases camera X/Z into local 4,800 m cells. It uploads 64 camera/control bytes and 16 integer origin/seed bytes.
 2. `seedOcean` evaluates four seeded directional Phillips spectra and evolves their Hermitian Fourier coefficients. `oceanFft` runs row and column inverse transforms; `packOcean` produces height, derivatives and squared slope, and eight `oceanMip` dispatches form the filtered pyramid.
 3. `tracePrimary` generates camera rays, intersects the spectral water and procedural terrain, and writes distance, material, footprint, variance, normal and water depth.
-4. `reflectOcean` traces one reflection per 2 × 2 pixel block through the same terrain definition. `shadeOcean` reconstructs reflections with depth/normal rejection, computes terrain shadows and materials, water absorption/refraction and highlights, and tone maps the result.
+4. `reflectOcean` traces one reflection per visible water pixel through the same terrain definition. `shadeOcean` reads that pixel’s reflection, computes terrain shadows and materials, water absorption/refraction and highlights, and tone maps the result.
 5. Output pixels copy directly to the WebGPU canvas. Input continues independently with a maximum of two queued frames. Optional timestamp readback runs periodically without blocking the frame loop.
 
-Ocean storage is constant: four full mip chains and two complex FFT buffers (about 9.3 MiB total). Visibility, normals/depth, half-resolution reflections and output storage scale with render resolution, never distance travelled. The shader loader verifies source/configuration/compiler hashes before reusing generated code. The browser still compiles the generated WGSL into a native GPU pipeline.
+Ocean storage is constant: four full mip chains and two complex FFT buffers (about 9.3 MiB total). Visibility, normals/depth, full-resolution reflections and output storage scale with render resolution, never distance travelled. The shader loader verifies source/configuration/compiler hashes before reusing generated code. The browser still compiles the generated WGSL into a native GPU pipeline.
 
 ## LOD evolution
 
@@ -39,3 +39,5 @@ Island scale: 4,800 m cells, 1,100–1,500 m support radius, 180–440 m peak pa
 Terrain detail uses island-local metre coordinates independently of island radius: warped 310 m ridge noise, 95/31/9 m relief bands, 42/9 m vegetation variation, and filtered stone/strata detail. Only the outer island envelope is radius-normalized. Inland relief fades out over the beach and submerged shelf. These are procedural terrain features, not erosion simulation or vegetation geometry.
 
 Close-up land shading has a separate projected pixel footprint with a 5 mm lower bound; geometry intersection filtering retains its 20 cm floor. Triplanar procedural colour detail at 40 cm, 9 cm and 2 cm scales fades with footprint. The coarser material band also perturbs lighting normals in the surface tangent plane. It does not displace silhouettes or create grass geometry.
+
+Reflection quality pass: per-pixel rays replace 2 × 2 reconstruction. At 1280 × 1240 the reflection buffer grows from about 6.1 MiB to 24.2 MiB. A seed-884 coast observation remained at 60 FPS, around 10–11 ms GPU total; frame-to-frame ocean changes and driver timing mean this is not a controlled benchmark. Temporal reflection stability remains future work.
