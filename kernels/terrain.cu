@@ -81,6 +81,26 @@ __device__ float surfaceNoise(float3 p,float3 n,float frequency){
  p=p*frequency;
  return noise2(p.y+17,p.z)*w.x+noise2(p.x,p.z+31)*w.y+noise2(p.x+53,p.y)*w.z;
 }
+__device__ float shoreWetness(float3 p,Island a,float fp){
+ if(p.y<=0)return 1;if(p.y>=4.5f)return 0;
+ float patches=.5f+(noise2((p.x-a.x)*.12f+a.seed,(p.z-a.z)*.12f)-.5f)*weight(fp,.12f);
+ float dryingHeight=2.5f+(patches-.5f)*1.6f;
+ return 1-smoothf(.15f,dryingHeight,p.y);
+}
+// Wet sand receives a broad dielectric highlight, rather than a water-like mirror.
+__device__ float3 wetSandSheen(float3 diffuse,float3 p,float3 n,float3 rd,float3 sun,const int* Origin,float fp,float shadow){
+ if(p.y>=4.5f||p.y< -4)return diffuse;
+ Island a=describeIsland((int)floorf(p.x/CELL),(int)floorf(p.z/CELL),Origin);
+ float wet=shoreWetness(p,a,fp)*smoothf(.65f,.95f,n.y);if(wet<=0)return diffuse;
+ float nv=sat(-dot3(n,rd)),nl=sat(dot3(n,sun));float3 halfVector=norm3(sun-rd);
+ float nh=sat(dot3(n,halfVector)),vh=sat(-dot3(rd,halfVector));
+ float a2=.20f*.20f,den=nh*nh*(a2-1)+1,D=a2/(PI*den*den);
+ float gv=2*nv/(nv+sqrtf(a2+(1-a2)*nv*nv)+.0001f),gl=2*nl/(nl+sqrtf(a2+(1-a2)*nl*nl)+.0001f);
+ float directF=.02f+.98f*powf(1-vh,5),viewF=.02f+.98f*powf(1-nv,5);
+ float3 rr=rd-n*(2*dot3(rd,n));float3 environment=sky(norm3(make_float3(rr.x,.06f,rr.z)),sun);
+ float specular=D*gv*gl*directF/(4*fmaxf(nv,.05f));
+ return mix3(diffuse,environment,wet*viewF*.65f)+make_float3(1,.85f,.65f)*(specular*wet*shadow*1.3f);
+}
 __device__ float3 landColor(float3 p,float3 n,float3 sun,const int* Origin,float fp){
  Island a=describeIsland((int)floorf(p.x/CELL),(int)floorf(p.z/CELL),Origin);float u=p.x-a.x,v=p.z-a.z;
  float grain=0.5f+(noise2(u*0.19f,v*0.19f)-0.5f)*weight(fp,0.19f);
@@ -114,7 +134,7 @@ __device__ float3 landColor(float3 p,float3 n,float3 sun,const int* Origin,float
   n=norm3(n-gradient*(lerpf(.035f,.16f,exposure)*wSmall));
  }
 
- float wet=1-smoothf(0,3,p.y);col=col*(1-wet*0.28f);
+ float wet=shoreWetness(p,a,fp);col=col*(1-wet*0.28f);
  float light=0.27f+0.73f*sat(dot3(n,sun));return col*light+make_float3(0.035f,0.065f,0.075f)*(1-n.y)*0.5f;
 }
 __device__ float terrainShadow(float3 p,float3 sun,const int* Origin,float fp){

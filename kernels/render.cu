@@ -82,7 +82,7 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Hit,con
  float t=Hit[b],material=Hit[b+1],fp=Hit[b+2];float3 p=ro+rd*t,n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),color=make_float3(0,0,0);
  // Sky/cloud evaluation is only needed when it survives the material branch.
  if(material!=1&&material!=2)color=sky(rd,sun);
- if(material==1)color=landColor(p,n,sun,Origin,fp)*terrainShadow(p+n*.4f,sun,Origin,fp);
+ if(material==1){float shadow=terrainShadow(p+n*.4f,sun,Origin,fp);color=landColor(p,n,sun,Origin,fp)*shadow;color=wetSandSheen(color,p,n,rd,sun,Origin,fp,shadow);}
  if(material==2){
   float nv=sat(-dot3(n,rd)),fresnel=.0204f+.9796f*powf(1-nv,5);float3 rr=rd-n*(2*dot3(rd,n)),reflected=make_float3(0,0,0);
   if(C[9]>.5f&&t<6500&&Reflection[b+3]>0)reflected=filteredReflection(x,y,width,height,Hit,Surface,Reflection);

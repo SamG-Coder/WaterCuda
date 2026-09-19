@@ -28,11 +28,25 @@ std::vector<float> cpuOcean(){
  return waves;
 }
 int main(){
+ // Wet sand is dry inland, continuous at its edge, and stable after rebasing.
+ {int o[4]={0,0,884,0},shifted[4]={1,-1,884,0};Island a=describeIsland(0,0,o),b=describeIsland(-1,1,shifted);
+  float3 diffuse={.3f,.25f,.15f},normal={0,1,0},sun=norm3(make_float3(.2f,.7f,1));
+  for(int i=0;i<200;i++){
+   float3 p={1800+i*.13f,i*.025f,1600+i*.19f};float wet=shoreWetness(p,a,.1f),other=shoreWetness(p+make_float3(-CELL,0,CELL),b,.1f);
+   if(wet<0||wet>1||fabsf(wet-other)>.002f)return 34;
+   auto rd=norm3(make_float3(.3f,-.01f-i*.005f,1));auto c=wetSandSheen(diffuse,p,normal,rd,sun,o,.1f,1);
+   if(!std::isfinite(c.x)||c.x<0||c.y<0||c.z<0)return 35;
+   if(p.y>=4.5f&&(c.x!=diffuse.x||c.y!=diffuse.y||c.z!=diffuse.z))return 36;
+  }
+  float3 p={1800,1,1600};auto near=wetSandSheen(diffuse,p,normal,norm3(make_float3(.2f,-.1f,1)),sun,o,.1f,1);
+  if(fabsf(near.x-diffuse.x)<.001f)return 37;
+  std::cout<<"200 wet-sand samples: range, origin stability, finite grazing response and dry exclusion passed\n";
+ }
  // Compare all output channels against the previous eager-sky entry points.
  {const int w=13,h=9,count=w*h*4;int origin[4]={0,0,884,0};
   std::vector<float> hit(count),surface(count),ref(count);std::vector<unsigned int> pixels(w*h),oldPixels(w*h);
   float c[16]={1250,210,650,.52f,-.1f,3,1,-.7f,.7f,1,0,1};
-  for(int i=0;i<w*h;i++){hit[i*4]=10+hash2(i,0,12)*6400;hit[i*4+1]=(float)(i%3);hit[i*4+2]=.2f+hash2(i,1,31)*12;hit[i*4+3]=.01f;surface[i*4+1]=1;surface[i*4+3]=hash2(i,2,42)*45;}
+  for(int i=0;i<w*h;i++){hit[i*4]=10+hash2(i,0,12)*6400;hit[i*4+1]=(float)(i%3);if(i%3==1)hit[i*4]=10;hit[i*4+2]=.2f+hash2(i,1,31)*12;hit[i*4+3]=.01f;surface[i*4+1]=1;surface[i*4+3]=hash2(i,2,42)*45;}
   blockDim={1,1,1};threadIdx={0,0,0};
   for(int toggle=0;toggle<2;toggle++){
    c[9]=(float)toggle;
