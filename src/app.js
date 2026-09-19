@@ -20,7 +20,7 @@ function syncLookControls(){
  $('clarity').value=camera[12];$('clarityValue').value=camera[12].toFixed(2)+'×';$('azimuth').value=camera[7]*180/Math.PI;$('azimuthValue').value=Math.round(camera[7]*180/Math.PI)+'°';
 }
 function setLook(name){applySeaLook(camera,name);$('look').value=name;syncLookControls();}
-$('look').onchange=e=>{setLook(e.target.value);toast('Sea and light updated · compiled pipelines reused');};
+$('look').onchange=e=>{setLook(e.target.value);toast('Sea and light updated');};
 $('clarity').oninput=e=>{camera[12]=Number(e.target.value);$('clarityValue').value=camera[12].toFixed(2)+'×';};
 $('azimuth').oninput=e=>{camera[7]=Number(e.target.value)*Math.PI/180;$('azimuthValue').value=e.target.value+'°';};
 $('caustics').onchange=e=>camera[13]=Number(e.target.checked);

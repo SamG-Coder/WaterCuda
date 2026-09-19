@@ -96,7 +96,7 @@ __device__ float seabedCaustic(float3 p,float depth,float fp,float3 sun,const fl
  float2 a=sunLanding(x,z,p.y,sampleFp,sun,Waves,Origin),b=sunLanding(x+e,z,p.y,sampleFp,sun,Waves,Origin),c=sunLanding(x,z+e,p.y,sampleFp,sun,Waves,Origin);
  float determinant=((b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x))/(e*e);
  float focus=clampf(1/fmaxf(.18f,fabsf(determinant)),.55f,2.8f);
- return (focus-1)*.48f*expf(-depth*.10f)*smoothf(.05f,.8f,depth)*(1-smoothf(10,16,depth))*weight(fp,.45f)*smoothf(0,.35f,sun.y);
+ return (focus-1)*.22f*expf(-depth*.10f)*smoothf(.05f,.8f,depth)*(1-smoothf(10,16,depth))*weight(fp,.45f)*smoothf(0,.35f,sun.y);
 }
 // Beer-Lambert attenuation for both the sun-to-bed and bed-to-camera paths.
 __device__ float3 waterTransmission(float distance){

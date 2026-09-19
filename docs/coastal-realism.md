@@ -101,3 +101,9 @@ The FFT ocean is still a vertical heightfield: no overturning breakers, coupled
 shoreline shallow-water solver, volumetric foam, boats or underwater camera.
 The island geometry is unchanged. There is no temporal anti-aliasing or bloom
 in this pass; extreme grazing reflections may still shimmer at low resolution.
+
+## Integration validation
+
+The Windows source-parser test uses `fileURLToPath`, and the browser fixture server normalizes its native root directory before containment checks. An HTTP regression test exercises the real server using a trailing-separator directory URL. Chromium validation uses Playwright 1.63.0 and reports application startup failures without waiting out the readiness timeout. The unused encoded patch transport was removed.
+
+The integrated scene passed all nine built-in GPU checks in the desktop browser. Daylight coast, shallow water, caustics on/off, golden hour and stronger waterline waves were inspected at 1280 × 720 with approximately 60 FPS during those spot checks. These are not controlled before/after performance measurements. Caustic contrast was reduced after the close shoreline comparison to avoid overwhelming the visible seabed.
