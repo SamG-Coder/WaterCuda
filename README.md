@@ -84,3 +84,7 @@ The next realism pass should add horizontal choppy-wave displacement, a local sh
 ## Source and attribution
 
 `kernels/` is the scene source. `src/` contains the browser shell, renderer and shader loader. `generated/` and `Water.cu` are generated outputs. `vendor/cuda-webshader/` and the shader loader/build support are adapted from stratum-city at commit `62ef0b067a68407c76ced0bb58b6bfd4b753d6ca`; the original MIT license and bundled third-party notices are retained.
+
+## Native C++ / CUDA version
+
+The [native/](native/README.md) subfolder builds a Windows desktop viewer and headless renderer with NVIDIA CUDA. It compiles the exact same `kernels/*.cu` files directly with `nvcc`, including the ocean FFT, terrain, billboards and shading. From the repository root, run `powershell -ExecutionPolicy Bypass -File native/build.ps1 -Test -Run`. See the native README for requirements, controls and image export.
