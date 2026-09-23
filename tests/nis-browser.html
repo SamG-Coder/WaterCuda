@@ -1,0 +1,31 @@
+<!doctype html><meta charset="utf-8"><title>NIS presentation checks</title>
+<style>canvas{width:384px;height:384px;image-rendering:pixelated}pre{white-space:pre-wrap}</style>
+<canvas id="source"></canvas><pre id="result">Running NIS checks…</pre>
+<script type="module">
+import {NisPresenter} from '../src/nis-presenter.js';
+const result=document.getElementById('result'),source=document.getElementById('source');
+try{
+ const start=performance.now(),presenter=new NisPresenter();await presenter.init(source);
+ const compileMs=performance.now()-start,gl=presenter.gl,width=32,height=32,pixels=new Uint8Array(width*height*4),out=new Uint8Array(width*height*16);
+ for(let i=0;i<pixels.length;i+=4)pixels.set([80,120,160,255],i);
+ presenter.draw({width,height,pixels:pixels.buffer});gl.readPixels(0,0,width*2,height*2,gl.RGBA,gl.UNSIGNED_BYTE,out);
+ let flatError=0;for(let i=0;i<out.length;i++)flatError=Math.max(flatError,Math.abs(out[i]-[80,120,160,255][i%4]));
+ if(flatError>1)throw Error('Flat-color drift: '+flatError);
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){const c=y<16?[220,40,20,255]:[20,50,220,255];pixels.set(c,(y*width+x)*4);}
+ presenter.draw({width,height,pixels:pixels.buffer});gl.readPixels(0,0,width*2,height*2,gl.RGBA,gl.UNSIGNED_BYTE,out);
+ if(out[2]<200||out[(height*2-1)*width*2*4]<200)throw Error('Vertical orientation incorrect');
+ // A diagonal edge exercises all directional filter branches across four rotations.
+ for(let y=0;y<height;y++)for(let x=0;x<width;x++){const c=x>y?210:30;pixels.set([c,c,c,255],(y*width+x)*4);}
+ const began=performance.now();for(let i=0;i<20;i++)presenter.draw({width,height,pixels:pixels.buffer});gl.finish();
+ if(gl.getError()!==gl.NO_ERROR)throw Error('WebGL validation failed');
+ source.width=width;source.height=height;source.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(pixels),width,height),0,0);
+ const smallPassMs=(performance.now()-began)/20;
+ const full=new Uint8Array(256*144*4);for(let y=0;y<144;y++)for(let x=0;x<256;x++){const c=(x+y)%32<16?180:40;full.set([c,c,c,255],(y*256+x)*4);}
+ presenter.draw({width:256,height:144,pixels:full.buffer});gl.finish();const measure=performance.now();
+ for(let i=0;i<20;i++)presenter.draw({width:256,height:144,pixels:full.buffer});gl.finish();
+ const upscale512Ms=(performance.now()-measure)/20;
+ const capture=await presenter.capture();if(!capture||capture.size<100)throw Error('Upscaled image capture failed');
+ presenter.dispose();if(document.getElementById('nis-preview'))throw Error('NIS canvas leaked after handover');
+ result.textContent=JSON.stringify({passed:true,flatError,compileMs,smallPassMs,upscale512Ms},null,2);document.body.dataset.passed='true';
+}catch(e){result.textContent=e.stack;document.body.dataset.passed='false';}
+</script>

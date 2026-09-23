@@ -11,6 +11,7 @@ self.onmessage=async({data})=>{
    world=new WasmWorld(program,data.width,data.height,s=>postMessage({type:'progress',message:s}));postMessage({type:'ready',threads:program.threads});return;
   }
   if(data.type==='frame'){
+   if(data.width&&data.height)world.resize(data.width,data.height);
    const result=world.frame(data.camera,data.origin),pixels=new Uint8Array(result.pixels);postMessage({type:'frame',...result,pixels:pixels.buffer,width:world.width,height:world.height},[pixels.buffer]);
   }
  }catch(e){postMessage({type:'error',message:String(e.stack||e)});}

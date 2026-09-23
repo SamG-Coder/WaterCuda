@@ -3,10 +3,12 @@ export {ThreadedProgram} from '../../vendor/cuda-webshader/wasm/runtime.js';
 // is a generated .cu kernel; this class only owns buffers and schedules work.
 export class WasmWorld{
  constructor(program,width=160,height=90,progress=()=>{}){
-  this.p=program;this.width=width;this.height=height;this.progress=progress;this.times={};
+  this.p=program;this.width=width;this.height=height;this.progress=progress;this.times={};this.capacity=Math.max(width*height,320*640);
   const sizes={C:64,Origin:16,Shrubs:11405990*4,Waves:(87381*4*4+4)*4,Spectrum:256*256*4*8,Ping:256*256*4*8,Initial:256*256*4*16,Hit:width*height*16,Surface:width*height*16,Reflection:width*height*16,Pixels:width*height*4};
+  for(const name of ['Hit','Surface','Reflection','Pixels'])sizes[name]=this.capacity*(name==='Pixels'?4:16);
   this.b=Object.fromEntries(Object.entries(sizes).map(([n,s])=>[n,program.alloc(s)]));
  }
+ resize(width,height){if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width*height>this.capacity)throw Error('Invalid CPU render size');this.width=width;this.height=height;}
  run(name,groups,values={}){const t=performance.now();this.p.dispatch(name,groups,{...this.b,...values,width:this.width,height:this.height});this.times[name]=(this.times[name]||0)+performance.now()-t;}
  frame(C,Origin){
   const start=performance.now();this.times={};this.p.write(this.b.C,C);this.p.write(this.b.Origin,Origin);
@@ -21,6 +23,6 @@ export class WasmWorld{
    this.run('packOcean',[32,32,4],{Spatial:this.b.Spectrum});for(let level=1;level<=8;level++)this.run('oceanMip',[Math.ceil((256>>level)/8),Math.ceil((256>>level)/8),4],{level});this.ocean=ocean;
   }
   for(const k of ['tracePrimary','traceVegetation','reflectOcean','shadeOcean']){this.progress(k);this.run(k,[Math.ceil(this.width/8),Math.ceil(this.height/8),1]);}
-  return {pixels:this.p.read(this.b.Pixels),ms:performance.now()-start,timings:{...this.times},groups:this.p.groups()};
+  return {pixels:this.p.read({...this.b.Pixels,bytes:this.width*this.height*4}),ms:performance.now()-start,timings:{...this.times},groups:this.p.groups()};
  }
 }

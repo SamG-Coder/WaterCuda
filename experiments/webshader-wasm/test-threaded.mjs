@@ -16,6 +16,10 @@ try{
  let result=world.frame(C,Origin);console.log('Cold full pipeline:',result.ms.toFixed(1),'ms',result.timings);const first=result.pixels;
  assert.ok(new Set(new Uint32Array(first.buffer)).size>200);result=world.frame(C,Origin);assert.deepEqual(result.pixels,first);console.log('Cached full pipeline:',result.ms.toFixed(1),'ms');
  C[5]=4;assert.notDeepEqual(world.frame(C,Origin).pixels,first);
+ const buffers=p.buffers.length;world.resize(160,90);result=world.frame(C,Origin);assert.equal(result.pixels.length,160*90*4);
+ assert.equal(p.buffers.length,buffers);assert.equal(result.timings.cacheTerrain,undefined);assert.equal(result.timings.generateShrubAtlas,undefined);
+ world.resize(64,36);C[5]=3;assert.deepEqual(world.frame(C,Origin).pixels,first);C[5]=4;
+ assert.throws(()=>world.resize(10000,10000));console.log('Adaptive resize preserves caches, allocations and exact pixels PASS');
  // Run shared native fixture through generated probe kernel and compare outputs.
  const fixture=JSON.parse(await readFile(new URL('../../tests/ocean-reference.json',import.meta.url),'utf8'));
  const Points=p.alloc(64),Result=p.alloc(64),controls=C.slice(),fixtureOrigin=new Int32Array([0,0,42,0]);controls[5]=3;controls[15]=-1;

@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Procedural infinite archipelago, authored in CUDA and rendered with WebGPU.",
   "scripts": {
-    "build": "node tools/compile.mjs",
+    "build": "node tools/build-nis.mjs && node tools/compile.mjs",
     "prestart": "npm run build",
     "start": "node server.mjs 8090",
     "test": "npm run build && node --test tests/*.test.mjs",

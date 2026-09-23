@@ -45,7 +45,7 @@ const input=new FlightInput(canvas,camera,{
  onLock:locked=>{$('fly').textContent=locked?'Flying · Esc to release':'Free camera · F';document.body.classList.toggle('exploring',locked);$('flightStatus').textContent=locked?'MOUSE LOOK · ESC TO RELEASE':'DRAG TO LOOK · F FOR MOUSE LOOK';}
 });
 $('fly').onclick=()=>{if(!input.capture())toast('Mouse capture unavailable here. Drag on the scene to look.');};
-$('capture').onclick=async()=>{if(!gpuActive&&!startupFirst)return;try{const blob=gpuActive?await engine.capture():await new Promise(resolve=>previewCanvas.toBlob(resolve));const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='WaterCuda-'+origin[2]+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);toast('Image saved');}catch(e){toast(e.message);}};
+$('capture').onclick=async()=>{if(!gpuActive&&!startupFirst)return;try{const blob=gpuActive?await engine.capture():await startup.capture();const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='WaterCuda-'+origin[2]+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);toast('Image saved');}catch(e){toast(e.message);}};
 $('validate').onclick=async()=>{if(!engine)return;$('validate').disabled=true;$('checks').textContent='Running actual GPU fixtures…';try{const result=await engine.validate();$('checks').textContent=result.checks.map(([name,ok])=>(ok?'PASS':'FAIL')+'  '+name).join('\n');document.body.dataset.gpuTests=result.checks.every(([,ok])=>ok)?'passed':'failed';window.gpuValidation=result;}catch(e){$('checks').textContent=e.stack;document.body.dataset.gpuTests='failed';}finally{$('validate').disabled=false;}};
 function advance(dt){
  moveCamera(camera,origin,input.keys,dt,speed,drifting);if(input.keys.size||input.drag)document.body.classList.add('exploring');if(!paused)camera[5]+=dt;
@@ -86,7 +86,7 @@ try{
   startup=new WasmStartup(previewCanvas,{
    onFrame:data=>{
     if(!startupFirst){startupFirst=true;document.body.dataset.backend='wasm';document.body.dataset.previewReady='true';$('loading').classList.add('done');}
-    $('fps').textContent=Math.round(1000/data.ms)+' FPS';$('resolution').textContent=data.width+' × '+data.height+' / CPU · preparing GPU';
+    $('fps').textContent=Math.round(1000/data.ms)+' FPS';$('resolution').textContent=data.width+' × '+data.height+' / CPU'+(data.nis?' · NIS 2×':'')+' · preparing GPU';
    },
    onError:message=>{console.warn('WASM startup:',message);toast('CPU preview unavailable · preparing GPU');}
   });
