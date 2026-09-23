@@ -115,7 +115,7 @@ int main(){
   }
   std::cout<<"Wave mip levels: physical sample centres and periodic wrapping passed\n";
  }
- // Coastal deposition is intentional; frozen offshore and highland heights stay fixed.
+ // Seabed geography is now continuous; dry terrain and coastal deposition remain bounded.
  int changedCoast=0;
  for(int seed:{42,884,12345}){
   int o[4]={0,0,seed,0};
@@ -125,13 +125,14 @@ int main(){
    float fp=(i%7==0?800.0f:(i%5==0?128.0f:.2f));float3 p={x,0,z};
    float h=ground(x,z,o,fp),expected=referenceGround(x,z,o,fp);
    auto n=groundNormal(p,o,fp);
-   if(!std::isfinite(h)||!std::isfinite(n.x)||!std::isfinite(n.y)||h<expected-.0001f||h-expected>21)return 22;
-   if((expected<=-26||expected>=70)&&fabsf(h-expected)>.00001f)return 22;
+   if(!std::isfinite(h)||!std::isfinite(n.x)||!std::isfinite(n.y)||h< -100||h>500)return 22;
+   if(expected>=70&&fabsf(h-expected)>.00001f)return 22;
+   if(expected>=0&&(h<expected-.0001f||h-expected>21))return 22;
    if(h-expected>.1f)changedCoast++;
   }
  }
  if(changedCoast<20)return 22;
- std::cout<<"6000 terrain samples: finite coastal deposition, unchanged deep seabed/highlands; "<<changedCoast<<" deposited samples\n";
+ std::cout<<"6000 terrain samples: finite coastal deposition, continuous seabed and unchanged highlands; "<<changedCoast<<" deposited samples\n";
  // Two-way bed lighting must dim monotonically and lose red before blue.
  {auto zero=waterTransmission(0);if(zero.x!=1||zero.y!=1||zero.z!=1)return 15;
   if(fabsf(sunWaterPath(10,1)-10)>.0001f||sunWaterPath(10,0)>15.2f)return 20;
@@ -180,7 +181,7 @@ int main(){
    float h=islandHeight(a.x-a.radius+x*a.radius/10,a.z-a.radius+z*a.radius/10,a,.2f);
    if(!std::isfinite(h)||h< -45.001f||h>a.peak+32)return 6;
   }
-  for(int i=0;i<=16;i++){float z=CELL*i/16;if(ground(CELL-.01f,z,o,.2f)!=ground(CELL+.01f,z,o,.2f))return 5;}
+  for(int i=0;i<=16;i++){float z=CELL*i/16;if(fabsf(ground(CELL-.001f,z,o,.2f)-ground(CELL+.001f,z,o,.2f))>.03f)return 5;}
  }
  std::cout<<"100 island seeds: bounds and cell-edge seabed continuity passed\n";
  // Near-surface material detail must survive rebasing and fade under minification.

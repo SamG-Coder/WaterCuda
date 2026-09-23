@@ -42,7 +42,9 @@ __device__ Shrub cachedShrub(int ix,int iz,const int* Origin,const float* Shrubs
 }
 // Eight 128px tiles: four side views and matching overhead crowns. Premultiplied
 // RGBA and all eight mip levels live after the bounded habitat cache (2.73 MiB).
-#define SHRUB_FLOATS 715428
+#define REEF_CACHE 715428
+#define CORAL_CACHE 4909736
+#define SHRUB_FLOATS 5114536
 __device__ int shrubTexel(int tile,int level,int x,int y){
  int n=128>>level;return 16388+(tile*21845+(16384-n*n)*4/3+y*n+x)*4;
 }

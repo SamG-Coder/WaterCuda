@@ -9,6 +9,7 @@ export const SPECS=[
  {entry:'oceanFft',file:'ocean',workgroupSize:[128,1,1],dependencies:['common','ocean']},
  {entry:'packOcean',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','ocean']},
  {entry:'oceanMip',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','ocean']},
+ {entry:'cacheReef',file:'render',workgroupSize:[8,8,1],dependencies:UNITS},
  {entry:'tracePrimary',file:'render',workgroupSize:[8,8,1],dependencies:UNITS},
  {entry:'traceVegetation',file:'render',workgroupSize:[8,8,1],dependencies:UNITS},
  {entry:'reflectOcean',file:'render',workgroupSize:[8,8,1],dependencies:UNITS},

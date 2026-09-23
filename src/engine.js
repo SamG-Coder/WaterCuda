@@ -5,11 +5,12 @@ export class Engine{
   this.errors=[];this.runtime=await GpuRuntime.create({onError:e=>{this.errors.push(String(e.message||e));this.onError?.(e);}});
   this.device=this.runtime.device;this.canvas=canvas;this.context=canvas.getContext('webgpu');
   this.loader=new KernelLoader(this.runtime,event=>{if(event.type==='done')console.info('[WaterCuda pipeline]',event.entry,event.timing);progress(event.entry+' · '+event.message);});
-  this.kernels={};await Promise.all(['generateShrubAtlas','mipShrubAtlas','cacheShrubs','cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','tracePrimary','traceVegetation','reflectOcean','shadeOcean'].map(async name=>{this.kernels[name]=await this.loader.load(name);}));
+  this.kernels={};await Promise.all(['generateShrubAtlas','mipShrubAtlas','cacheShrubs','cacheReef','cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','tracePrimary','traceVegetation','reflectOcean','shadeOcean'].map(async name=>{this.kernels[name]=await this.loader.load(name);}));
   this.camera=this.runtime.createBuffer(64,{label:'Camera and ocean controls'});
   this.origin=this.runtime.createBuffer(16,{label:'Integer world origin and seed'});
-  this.shrubs=this.runtime.createBuffer(715428*4,{label:'Shrub habitat and generated foliage atlas'});
+  this.shrubs=this.runtime.createBuffer(5114536*4,{label:'Shrub habitat and generated foliage atlas'});
   this.cacheShrubCall=this.kernels.cacheShrubs.bind({C:this.camera,Origin:this.origin,Shrubs:this.shrubs});this.lastShrubState=null;
+  this.cacheReefCall=this.kernels.cacheReef.bind({C:this.camera,Origin:this.origin,Shrubs:this.shrubs});this.lastReefState=null;
   this.runtime.batch().dispatch(this.kernels.generateShrubAtlas.bind({Shrubs:this.shrubs}),[16,16,8]).submit();
   for(let level=1;level<8;level++)this.runtime.batch().dispatch(this.kernels.mipShrubAtlas.bind({Shrubs:this.shrubs},{level}),[Math.ceil((128>>level)/8),Math.ceil((128>>level)/8),8]).submit();
   this.waves=this.runtime.createBuffer(87381*4*4*4,{label:'Four spectral cascades with mipmaps'});
@@ -45,6 +46,8 @@ export class Engine{
   const start=performance.now();this.runtime.write(this.camera,camera);this.runtime.write(this.origin,origin);
   const shrubState=[Math.floor(camera[0]/6),Math.floor(camera[2]/6),origin[0],origin[1],origin[2]];
   if(!this.lastShrubState||shrubState.some((v,i)=>v!==this.lastShrubState[i])){this.runtime.batch().dispatch(this.cacheShrubCall,[8,8]).submit();this.lastShrubState=shrubState;}
+  const reefState=[Math.floor(camera[0]/12),Math.floor(camera[2]/12),origin[0],origin[1],origin[2]];
+  if(camera[1]<0&&camera[14]<.5&&(!this.lastReefState||reefState.some((v,i)=>v!==this.lastReefState[i]))){this.runtime.batch().dispatch(this.cacheReefCall,[128,128]).submit();this.lastReefState=reefState;}
   const timed=!!this.queries&&!this.timingBusy&&this.frames%30===0;
   const stages=[['spectrum',[]],['tracePrimary',[Math.ceil(this.width/8),Math.ceil(this.height/8)]],['traceVegetation',[Math.ceil(this.width/8),Math.ceil(this.height/8)]],['reflectOcean',[Math.ceil(this.width/8),Math.ceil(this.height/8)]],['shadeOcean',[Math.ceil(this.width/8),Math.ceil(this.height/8)]]];
   let batch=this.runtime.batch(timed?{timestampWrites:{querySet:this.queries,beginningOfPassWriteIndex:0,endOfPassWriteIndex:1}}:{});

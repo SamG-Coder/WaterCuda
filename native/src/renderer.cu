@@ -30,6 +30,7 @@ struct Renderer::Impl {
  Buffer<float> camera,waves,shrubs,hit,surface,reflection;
  Buffer<int> origin;Buffer<float4> initial;Buffer<float2> spectrum,ping;Buffer<unsigned int> pixels;
  Event begin,end;std::vector<std::uint32_t> host;int width=0,height=0,seed=-1;
+ std::array<int,5> reefPatch{};bool reefValid=false;
  std::array<int,5> patch{};bool patchValid=false,oceanValid=false;float time=0,wind=0,ms=0;
  std::string name;
  Impl(){
@@ -68,8 +69,10 @@ const std::vector<std::uint32_t>& Renderer::render(const Scene& s){
  CUDA(cudaEventRecord(r.begin.value));r.ocean(s);
  std::array<int,5> patch{int(std::floor(s.camera[0]/6)),int(std::floor(s.camera[2]/6)),s.origin[0],s.origin[1],s.origin[2]};
  if(!r.patchValid||patch!=r.patch){cacheShrubs<<<dim3(8,8),dim3(8,8)>>>(r.camera.p,r.origin.p,r.shrubs.p);launchCheck();r.patch=patch;r.patchValid=true;}
+ std::array<int,5> reefPatch{int(std::floor(s.camera[0]/12)),int(std::floor(s.camera[2]/12)),s.origin[0],s.origin[1],s.origin[2]};
+ if(s.camera[1]<0&&s.camera[14]<.5f&&(!r.reefValid||reefPatch!=r.reefPatch)){cacheReef<<<dim3(128,128),dim3(8,8)>>>(r.camera.p,r.origin.p,r.shrubs.p);launchCheck();r.reefPatch=reefPatch;r.reefValid=true;}
  dim3 groups((r.width+7)/8,(r.height+7)/8),threads(8,8);
- tracePrimary<<<groups,threads>>>(r.camera.p,r.origin.p,r.waves.p,r.hit.p,r.surface.p,r.width,r.height);launchCheck();
+ tracePrimary<<<groups,threads>>>(r.camera.p,r.origin.p,r.waves.p,r.shrubs.p,r.hit.p,r.surface.p,r.width,r.height);launchCheck();
  traceVegetation<<<groups,threads>>>(r.camera.p,r.origin.p,r.shrubs.p,r.hit.p,r.surface.p,r.width,r.height);launchCheck();
  reflectOcean<<<groups,threads>>>(r.camera.p,r.origin.p,r.shrubs.p,r.hit.p,r.surface.p,r.reflection.p,r.width,r.height);launchCheck();
  shadeOcean<<<groups,threads>>>(r.camera.p,r.origin.p,r.shrubs.p,r.hit.p,r.surface.p,r.reflection.p,r.waves.p,r.pixels.p,r.width,r.height);launchCheck();

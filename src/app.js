@@ -9,8 +9,8 @@ let engine,paused=false,drifting=false,speed=60,resizing=true,running=false,last
 let toastTimer;
 function toast(message){$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),3500);}
 function preset(name){
- const views={coast:[1250,210,650,0.52,-0.10],aerial:[-300,1400,-300,0.70,-0.34],water:[1550,7,1100,0.52,0.025],shore:[1850,25,1250,0.15,-0.30],scrub:[2810.9,11.51,1131.74,0,-.20],bars:[3370,42,2770,-1.4,-.23]};
- const v=views[name];camera.set(v);origin[0]=0;origin[1]=0;rebase(camera,origin);input.clear();drifting=false;$('sail').innerHTML='Begin drift <span>→</span>';
+ const views={coast:[1250,210,650,0.52,-0.10],aerial:[-300,1400,-300,0.70,-0.34],water:[1550,7,1100,0.52,0.025],shore:[1850,25,1250,0.15,-0.30],scrub:[2810.9,11.51,1131.74,0,-.20],bars:[3370,42,2770,-1.4,-.23],reef:[4377,-7,2784,0,-.12],coral:[4377,-7.3,2810.8,0,-.18],family:[4377,-6.5,2805,0,-.23]};
+ const v=views[name];camera.set(v);camera[14]=name==='family'?2:(name==='coral'?1:0);if(camera[14]>0)speed=2;origin[0]=0;origin[1]=0;rebase(camera,origin);input.clear();drifting=false;$('sail').innerHTML='Begin drift <span>→</span>';
  document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('selected',b.dataset.view===name));
 }
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>preset(b.dataset.view));
@@ -34,7 +34,7 @@ $('sail').onclick=()=>{drifting=!drifting;$('sail').innerHTML=drifting?'Stop dri
 function toggleUI(){const clean=document.body.classList.toggle('clean');$('restore').hidden=!clean;}
 $('hide').onclick=toggleUI;$('restore').onclick=toggleUI;
 const input=new FlightInput(canvas,camera,{
- onShortcut:code=>{if(code==='KeyH')toggleUI();if(code==='KeyF')input.capture();if(code==='Digit1')preset('coast');if(code==='Digit2')preset('aerial');if(code==='Digit3')preset('water');if(code==='Digit4')preset('shore');},
+ onShortcut:code=>{if(code==='KeyH')toggleUI();if(code==='KeyF')input.capture();if(code==='Digit1')preset('coast');if(code==='Digit2')preset('aerial');if(code==='Digit3')preset('water');if(code==='Digit4')preset('shore');if(code==='Digit7')preset('reef');if(code==='Digit8')preset('coral');},
  onSpeed:delta=>{speed=Math.max(3,speed*Math.exp(-delta*.001));toast('Flight speed · '+Math.round(speed)+' m/s');},
  onLock:locked=>{$('fly').textContent=locked?'Flying · Esc to release':'Free camera · F';document.body.classList.toggle('exploring',locked);$('flightStatus').textContent=locked?'MOUSE LOOK · ESC TO RELEASE':'DRAG TO LOOK · F FOR MOUSE LOOK';}
 });
@@ -63,6 +63,6 @@ async function loop(now){
 try{
  const url=new URL(location.href);if(url.searchParams.has('seed')){origin[2]=parseSeed(url.searchParams.get('seed'));$('seed').value=origin[2];}
  engine=await new Engine().init(canvas,message=>$('status').textContent=message);engine.onError=e=>{running=false;$('loading').classList.remove('done');$('status').textContent=String(e.message||e);};
- window.waterCuda={engine,camera,origin,preset,setLook,setRenderLoop(on){if(on&&!running){running=true;last=performance.now();requestAnimationFrame(loop);}else if(!on)running=false;}};setLook(['coastal','golden','swell'].includes(url.searchParams.get('look'))?url.searchParams.get('look'):'coastal');preset(['coast','aerial','water','shore','scrub','bars'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'coast');running=true;last=performance.now();await loop(last);await engine.runtime.idle();if(!running)throw Error('Renderer failed to produce its first frame.');$('loading').classList.add('done');document.body.dataset.ready='true';
+ window.waterCuda={engine,camera,origin,preset,setLook,setRenderLoop(on){if(on&&!running){running=true;last=performance.now();requestAnimationFrame(loop);}else if(!on)running=false;}};setLook(['coastal','golden','swell'].includes(url.searchParams.get('look'))?url.searchParams.get('look'):'coastal');preset(['coast','aerial','water','shore','scrub','bars','reef','coral','family'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'coast');running=true;last=performance.now();await loop(last);await engine.runtime.idle();if(!running)throw Error('Renderer failed to produce its first frame.');$('loading').classList.add('done');document.body.dataset.ready='true';
  if(url.searchParams.has('test')){document.querySelector('details').open=true;$('validate').click();}
 }catch(e){$('status').textContent=e.message+' Open in a recent Chrome or Edge browser with WebGPU enabled.';console.error(e);}

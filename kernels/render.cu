@@ -1,6 +1,199 @@
-__global__ void tracePrimary(const float* C,const int* Origin,const float* Waves,float* Hit,float* Surface,int width,int height){
+__device__ float3 seabedAlbedo(float3 p,float fp,const int* Origin){
+ float base=seabedBase(p.x,p.z,Origin,fp);float4 reef=reefColony(p.x,p.z,base,fp,Origin);
+ float ripple=0;
+ // Phase uses an integer-period local coordinate to remain stable after rebasing.
+ float ux=p.x-floorf(p.x/12)*12,uz=p.z-floorf(p.z/12)*12;
+ ripple=sinf(ux*(2*PI/3)+uz*(2*PI/6)+bedNoise(p.x,p.z,12,Origin,1250u)*2)*weight(fp,.65f);
+ float grain=bedNoise(p.x,p.z,1,Origin,1251u);
+ float3 sand=make_float3(.55f,.49f,.34f)*(.92f+ripple*.07f+grain*.12f);
+ float rock=smoothf(.58f,.78f,bedNoise(p.x,p.z,24,Origin,1252u))*smoothf(12,45,-base);
+ sand=mix3(sand,make_float3(.18f,.22f,.17f),rock*.7f);
+ // Living colonies are separate 3D objects; the substrate stays limestone/rubble.
+ return mix3(sand,make_float3(.16f,.19f,.15f)*(.75f+grain*.5f),sat(reef.x*.22f));
+}
+
+// A moving 384 m CUDA-generated seabed tile. Static world geometry/material is
+// evaluated once per 12 m camera step, not hundreds of times per viewing ray.
+// It shares the existing scene storage binding with foliage (18.73 MiB total).
+__global__ void cacheReef(const float* C,const int* Origin,float* Shrubs){
+ int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),z=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=1024||z>=1024)return;
+ float bx=floorf(C[0]/12)*12-192,bz=floorf(C[2]/12)*12-192;
+ if(x==0&&z==0){Shrubs[REEF_CACHE]=bx;Shrubs[REEF_CACHE+1]=bz;Shrubs[REEF_CACHE+2]=1;Shrubs[REEF_CACHE+3]=0;}
+ float px=bx+((float)x+.5f)*.375f,pz=bz+((float)z+.5f)*.375f;
+ float h=ground(px,pz,Origin,.06f);float3 color=seabedAlbedo(make_float3(px,h,pz),.06f,Origin);
+ int b=REEF_CACHE+4+(z*1024+x)*4;Shrubs[b]=h;Shrubs[b+1]=color.x;Shrubs[b+2]=color.y;Shrubs[b+3]=color.z;
+ if(x<160&&z<160){
+  int ix=(int)roundf(bx/2.4f)+x,iz=(int)roundf(bz/2.4f)+z;
+  unsigned int gx=(unsigned int)ix+(unsigned int)Origin[0]*2000u,gz=(unsigned int)iz+(unsigned int)Origin[1]*2000u;
+  float seed=hash2((int)gx,(int)gz,(unsigned int)Origin[2]+2111u);
+  float rx=((float)ix+.5f)*2.4f+(seed-.5f)*1.1f,rz=((float)iz+.5f)*2.4f+(hash2((int)gx,(int)gz,2112u)-.5f)*1.1f;
+  float base=seabedBase(rx,rz,Origin,.06f);float4 habitat=reefColony(rx,rz,base,.06f,Origin);
+  float root=base+habitat.x;
+  float size=(.82f+.34f*hash2((int)gx,(int)gz,2113u))*smoothf(.10f,.24f,habitat.y);
+  if(root> -3.5f)size=0;
+  size=fminf(size,fmaxf(0,(-root-1.5f)/3.2f));
+  // Correlated gardens: one dominant species and palette across adjacent colonies.
+  float garden=bedNoise(rx,rz,24,Origin,2120u);
+  float kind=garden<.43f?0:(garden<.65f?1:2);
+  float palette=bedNoise(rx,rz,24,Origin,2121u);
+  if(-base>24&&seed<.6f)kind=1;
+  int c=CORAL_CACHE+(z*160+x)*8;
+  Shrubs[c]=rx;Shrubs[c+1]=root-.08f;Shrubs[c+2]=rz;Shrubs[c+3]=size;
+  Shrubs[c+4]=kind;Shrubs[c+5]=seed;Shrubs[c+6]=palette;Shrubs[c+7]=0;
+ }
+}
+__device__ float4 reefSample(float x,float z,const int* Origin,const float* Shrubs){
+ float u=(x-Shrubs[REEF_CACHE])*(8.0f/3)-.5f,v=(z-Shrubs[REEF_CACHE+1])*(8.0f/3)-.5f;
+ // The 150 m optical range lies inside the nearest cache edge (180 m).
+ u=clampf(u,0,1023);v=clampf(v,0,1023);
+ int ix=(int)floorf(u),iz=(int)floorf(v),jx=(int)fminf((float)ix+1,1023),jz=(int)fminf((float)iz+1,1023);
+ float fx=u-(float)ix,fz=v-(float)iz;
+ int a=REEF_CACHE+4+(iz*1024+ix)*4,b=REEF_CACHE+4+(iz*1024+jx)*4,c=REEF_CACHE+4+(jz*1024+ix)*4,d=REEF_CACHE+4+(jz*1024+jx)*4;
+ float out[4];for(int k=0;k<4;k++)out[k]=lerpf(lerpf(Shrubs[a+k],Shrubs[b+k],fx),lerpf(Shrubs[c+k],Shrubs[d+k],fx),fz);
+ return make_float4(out[0],out[1],out[2],out[3]);
+}
+__device__ float3 reefNormal(float3 p,const int* Origin,const float* Shrubs,float fp){
+ float e=fmaxf(.125f,fp);return norm3(make_float3(reefSample(p.x-e,p.z,Origin,Shrubs).x-reefSample(p.x+e,p.z,Origin,Shrubs).x,2*e,reefSample(p.x,p.z-e,Origin,Shrubs).x-reefSample(p.x,p.z+e,Origin,Shrubs).x));
+}
+__device__ float traceReef(float3 ro,float3 rd,const int* Origin,const float* Shrubs,float limit){
+ float t=.02f,previous=t;float slope=fabsf(rd.y)+12*sqrtf(rd.x*rd.x+rd.z*rd.z);
+ int budget=(int)fminf(4096,ceilf(limit/.02f)+2);
+ for(int i=0;i<budget;i++){
+  if(t>=limit)return -1;float3 p=ro+rd*t;if(p.y>8&&rd.y>=0)return -1;
+  float gap=p.y-reefSample(p.x,p.z,Origin,Shrubs).x;
+  if(gap<=0){float lo=previous,hi=t;for(int k=0;k<7;k++){float mid=(lo+hi)*.5f;float3 q=ro+rd*mid;if(q.y>reefSample(q.x,q.z,Origin,Shrubs).x)lo=mid;else hi=mid;}return (lo+hi)*.5f;}
+  previous=t;t+=fmaxf(.02f,gap/fmaxf(.01f,slope));
+ }
+ return -1;
+}
+// Actual 3D intersections: disconnected silhouettes, plate undersides and branch gaps.
+__device__ float4 coralEllipsoid(float3 ro,float3 rd,float3 center,float3 radius,float4 hit){
+ float3 inv=make_float3(1/radius.x,1/radius.y,1/radius.z);float3 q=(ro-center)*inv,v=rd*inv;float a=dot3(v,v),b=dot3(q,v),c=dot3(q,q)-1,d=b*b-a*c;
+ if(d<0)return hit;float t=(-b-sqrtf(d))/a;if(t<=.002f)t=(-b+sqrtf(d))/a;
+ if(t<=.002f||t>=hit.x)return hit;float3 n=norm3((ro+rd*t-center)*inv*inv);return make_float4(t,n.x,n.y,n.z);
+}
+__device__ float4 coralBranch(float3 ro,float3 rd,float3 a,float3 b,float radius,float4 hit){
+ float3 ba=b-a,oa=ro-a;float bb=dot3(ba,ba),br=dot3(ba,rd),bo=dot3(ba,oa),rr=dot3(rd,oa);
+ // Reject the enclosing sphere before evaluating the cylinder and both caps.
+ float middle=rr-br*.5f,oo=dot3(oa,oa);
+ float sphereRadius2=bb*.25f+radius*sqrtf(bb)+radius*radius;
+ if(oo-bo+bb*.25f-middle*middle>sphereRadius2+.00001f)return hit;
+ float aa=bb-br*br,ab=bb*rr-bo*br,cc=bb*oo-bo*bo-radius*radius*bb,disc=ab*ab-aa*cc;
+ if(aa>.000001f&&disc>=0){float t=(-ab-sqrtf(disc))/aa,y=bo+t*br;
+  if(t>.002f&&t<hit.x&&y>0&&y<bb){float3 n=norm3(oa+rd*t-ba*(y/bb));hit=make_float4(t,n.x,n.y,n.z);}}
+ hit=coralEllipsoid(ro,rd,a,make_float3(radius,radius,radius),hit);
+ return coralEllipsoid(ro,rd,b,make_float3(radius,radius,radius),hit);
+}
+// Pixel-footprint LOD retains a branching silhouette at every level.
+__device__ int coralArmStep(float fp){return fp>.15f?4:(fp>.065f?2:1);}
+__device__ int coralForkCount(float fp){return fp>.065f?2:4;}
+__device__ int coralTwigCount(float fp){return fp>.028f?0:(fp>.012f?1:3);}
+__device__ float4 coralGeometry(float3 ro,float3 rd,float kind,float seed,float limit,float footprint){
+ float4 hit=make_float4(limit,0,0,0);float phase=seed*2*PI;
+ if(kind<2){
+  // A spreading colony: dense, irregular radial branching, rather than upright trees.
+  bool table=kind>=1;int arms=kind<0?29:17;
+  int armStep=coralArmStep(footprint);float thick=sqrtf((float)armStep);
+  #pragma unroll 1
+  for(int i=0;i<arms;i+=armStep){
+   float angle=phase+(float)i*2.399963f;
+   float reach=.45f+.42f*fractf(seed*17+(float)i*.618f);
+   float h=table?.48f:.25f+.35f*fractf(seed*13+(float)i*.37f);
+   float3 a=make_float3(0,.04f,0),b=make_float3(cosf(angle)*reach,h,sinf(angle)*reach);
+   hit=coralBranch(ro,rd,a,b,.075f*thick,hit);
+   int forks=coralForkCount(footprint);
+   #pragma unroll 1
+   for(int f=0;f<forks;f++){
+    int j=forks==2?f*2+1:f;
+    float u=.35f+(float)j*.20f,turn=angle+(j%2==0?-.7f:.7f);
+    float3 joint=a+(b-a)*u;
+    float3 tip=joint+make_float3(cosf(turn)*.26f,(table?.18f:.24f)+fractf(seed*23+(float)(i*4+j)*.43f)*.22f,sinf(turn)*.26f);
+    hit=coralBranch(ro,rd,joint,tip,(.045f+.02f*smoothf(.012f,.04f,footprint))*thick,hit);
+    int twigs=coralTwigCount(footprint);
+    #pragma unroll 1
+    for(int k=0;k<twigs;k++){
+     float theta=turn+(float)k*2.1f;float3 end=tip+make_float3(cosf(theta)*.13f,.12f+fractf(seed*29+(float)(i+j+k)*.67f)*.16f,sinf(theta)*.13f);
+     hit=coralBranch(ro,rd,tip,end,.026f,hit);
+    }
+   }
+  }
+  if(table)hit=coralEllipsoid(ro,rd,make_float3(0,.43f,0),make_float3(.75f,.055f,.68f),hit);
+ }else{
+  // Rounded massive head with overlapping low lobes, not a bundle of fingers.
+  hit=coralEllipsoid(ro,rd,make_float3(0,.34f,0),make_float3(.88f,.55f,.78f),hit);
+  int lobes=17;
+  for(int i=0;i<lobes;i++){
+   float angle=phase+(float)i*2.399963f,r=sqrtf((float)i/17)*.8f;
+   float y=.35f+.35f*sqrtf(fmaxf(0,1-r*r));
+   hit=coralEllipsoid(ro,rd,make_float3(cosf(angle)*r,y,sinf(angle)*r),make_float3(.23f,.26f,.23f),hit);
+  }
+ }
+ return hit;
+}
+__device__ float4 traceCorals(float3 ro,float3 rd,const float* Shrubs,float limit,float cone){
+ float t=0;float4 result=make_float4(limit,0,0,-1);
+ int ix=(int)floorf(ro.x/2.4f),iz=(int)floorf(ro.z/2.4f),sx=rd.x>=0?1:-1,sz=rd.z>=0?1:-1;
+ float tx=fabsf(rd.x)>.000001f?(((float)ix+(sx>0?1:0))*2.4f-ro.x)/rd.x:100000;
+ float tz=fabsf(rd.z)>.000001f?(((float)iz+(sz>0?1:0))*2.4f-ro.z)/rd.z:100000;
+ float dtx=2.4f/fmaxf(.000001f,fabsf(rd.x)),dtz=2.4f/fmaxf(.000001f,fabsf(rd.z));
+ // Increment integer cells explicitly: a sub-ULP epsilon cannot cross a far-world boundary.
+ int budget=(int)fminf(192,ceilf(limit*(fabsf(rd.x)+fabsf(rd.z))/2.4f)+3);
+ for(int step=0;step<budget;step++){
+  if(t>=result.x)break;float end=fminf(result.x,fminf(tx,tz));
+  #pragma unroll 1
+  for(int oz=-1;oz<=1;oz++)for(int ox=-1;ox<=1;ox++){
+  int cx=ix+ox-(int)roundf(Shrubs[REEF_CACHE]/2.4f),cz=iz+oz-(int)roundf(Shrubs[REEF_CACHE+1]/2.4f);
+  if(cx>=0&&cz>=0&&cx<160&&cz<160){int c=CORAL_CACHE+(cz*160+cx)*8;float size=Shrubs[c+3];
+   if(size>.05f){float3 root=make_float3(Shrubs[c],Shrubs[c+1],Shrubs[c+2]);
+    float2 box=boxRay(ro,rd,root+make_float3(-1.35f*size,-.2f, -1.35f*size),root+make_float3(1.35f*size,3.1f*size,1.35f*size));
+    if(box.y>fmaxf(0,box.x)&&box.x<result.x){float start=fmaxf(0,box.x-.01f);float4 h=coralGeometry((ro+rd*start-root)/size,rd,Shrubs[c+4],Shrubs[c+5],(result.x-start)/size,cone*fmaxf(1,t)/size);
+     float distance=start+h.x*size;
+     if(h.y*h.y+h.z*h.z+h.w*h.w>.5f&&distance<result.x){result=make_float4(distance,h.y,h.z,h.w);}}
+   }
+  }
+  }
+  if(tx<tz){t=tx;tx+=dtx;ix+=sx;}else{t=tz;tz+=dtz;iz+=sz;}
+ }
+ return result;
+}
+__device__ float3 specimenRoot(const int* Origin){return make_float3(4377-(float)Origin[0]*CELL,-10,2817-(float)Origin[1]*CELL);}
+__device__ float4 traceSpecimen(float3 ro,float3 rd,const int* Origin,float limit,float study,float cone){
+ float4 result=make_float4(limit,0,0,0);int count=study>1.5f?3:1;
+ #pragma unroll 1
+ for(int member=0;member<count;member++){
+  float3 root=specimenRoot(Origin);float scale=count==1?2.2f:1.65f;
+  if(count>1)root.x+=((float)member-1)*3.6f;
+  float seed=member==0?.173f:(member==1?.397f:.681f);
+  seed=fractf(seed+hash2(member,0,(unsigned int)Origin[2]+3121u)-hash2(member,0,4005u));
+  float2 bounds=boxRay(ro,rd,root+make_float3(-3,-.2f,-3),root+make_float3(3,3,3));
+  if(bounds.y<0||bounds.x>result.x)continue;
+  float start=fmaxf(0,bounds.x-.01f),fp=cone*fmaxf(1,start)/scale;
+  float4 h=coralGeometry((ro+rd*start-root)/scale,rd,count==1?-1:0,seed,(result.x-start)/scale,fp);
+  if(h.y*h.y+h.z*h.z+h.w*h.w<.5f)continue;
+  result=make_float4(start+h.x*scale,h.y,h.z,h.w);
+ }
+ return result;
+}
+__global__ void tracePrimary(const float* C,const int* Origin,const float* Waves,const float* Shrubs,float* Hit,float* Surface,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
  float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height);float cone=1.05f/(float)height;
+ if(C[14]>.5f){
+  float t=150,material=6;float3 n=make_float3(0,1,0);
+  if(rd.y<-.0001f){float floorHit=(-10.12f-ro.y)/rd.y;if(floorHit>0&&floorHit<t){t=floorHit;material=8;}}
+  float4 rock=coralEllipsoid(ro,rd,specimenRoot(Origin)+make_float3(0,-.1f,0),make_float3(.8f,.28f,.7f),make_float4(t,0,0,0));
+  if(rock.x<t){t=rock.x;material=8;n=make_float3(rock.y,rock.z,rock.w);}
+  Hit[b]=t;Hit[b+1]=material;Hit[b+2]=fmaxf(.002f,t*cone);Hit[b+3]=0;
+  Surface[b]=n.x;Surface[b+1]=n.y;Surface[b+2]=n.z;Surface[b+3]=0;return;
+ }
+ // Diving uses the same CUDA terrain, now including the connected ocean floor.
+ if(ro.y<0){
+  float wt=-1;if(rd.y>.0001f){wt=-ro.y/rd.y;for(int k=0;k<4;k++){float3 q=ro+rd*wt;float4 wave=ocean(q.x,q.z,fmaxf(.12f,wt*cone),Waves,Origin);wt=fmaxf(.01f,(wave.x-ro.y)/rd.y);}}
+  float limit=wt>0?fminf(150,wt):150,bt=traceReef(ro,rd,Origin,Shrubs,limit);
+  float t=bt>0?bt:(wt>0&&wt<150?wt:150),material=bt>0?4:(wt>0&&wt<150?5:6),fp=fmaxf(.03f,t*cone);
+  float3 n=make_float3(0,1,0);if(material==4)n=reefNormal(ro+rd*t,Origin,Shrubs,fp);
+  if(material==5){float3 q=ro+rd*t;float4 w=ocean(q.x,q.z,fp,Waves,Origin);n=norm3(make_float3(-w.y,1,-w.z));}
+  Hit[b]=t;Hit[b+1]=material;Hit[b+2]=fp;Hit[b+3]=0;Surface[b]=n.x;Surface[b+1]=n.y;Surface[b+2]=n.z;Surface[b+3]=0;return;
+ }
  float wt=waterHit(ro,rd,cone,C[6],Waves,Origin),lt=traceLand(ro,rd,Origin,wt>0?wt+3:FAR,cone);
  float t=FAR,material=0,fp=0,variance=0,depth=0;float3 n=make_float3(0,1,0);
  if(lt>0&&(wt<0||lt<wt)){t=lt;material=1;fp=fmaxf(.2f,t*cone);n=groundNormal(ro+rd*t,Origin,fp);fp=fmaxf(.005f,t*cone/fmaxf(.2f,fabsf(dot3(n,rd))));}
@@ -12,6 +205,13 @@ __global__ void tracePrimary(const float* C,const int* Origin,const float* Waves
 __global__ void traceVegetation(const float* C,const int* Origin,const float* Shrubs,float* Hit,float* Surface,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
  float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height);float cone=1.05f/(float)height;
+ if(ro.y<0){
+  float4 coral=C[14]>.5f?traceSpecimen(ro,rd,Origin,Hit[b],C[14],cone):traceCorals(ro,rd,Shrubs,Hit[b],cone);
+  if(coral.x<Hit[b]){
+   float3 p=ro+rd*coral.x;Hit[b]=coral.x;Hit[b+1]=7;Hit[b+2]=fmaxf(.002f,coral.x*cone);Hit[b+3]=C[14]>.5f?.12f:bedNoise(p.x,p.z,24,Origin,2121u);
+   Surface[b]=coral.y;Surface[b+1]=coral.z;Surface[b+2]=coral.w;Surface[b+3]=0;
+  }return;
+ }
  float4 shrub=traceShrubs(ro,rd,Origin,Shrubs,Hit[b],C[5],C[6],cone);
  if(shrub.x<Hit[b]){Hit[b]=shrub.x;Hit[b+1]=3;Hit[b+2]=fmaxf(.005f,shrub.x*cone);Hit[b+3]=0;Surface[b]=shrub.y;Surface[b+1]=shrub.z;Surface[b+2]=shrub.w;Surface[b+3]=0;}
 }
@@ -79,16 +279,8 @@ __device__ float waterFoam(float3 p,float3 n,float depth,float fp,float time,flo
  float whitecap=crest*lerpf(.18f,smoothf(.42f,.76f,broad*.65f+fine*.35f),wb)*.40f;
  return sat(shore*wash+contact+whitecap);
 }
-// Filtered ripples and sparse seabed patches are materials only. They never change
-// the terrain/shoreline or insert mesh/image assets into the world.
-__device__ float3 seabedAlbedo(float3 p,float fp,const int* Origin){
- Island a=describeIsland((int)floorf(p.x/CELL),(int)floorf(p.z/CELL),Origin);
- float u=p.x-a.x,v=p.z-a.z,patch=noise2(u*.035f+a.seed,v*.035f);
- float ripple=0,wr=weight(fp,.65f);if(wr>0){float warp=noise2(u*.10f,v*.10f)*1.9f;ripple=sinf(u*3.1f+v*.8f+warp)*wr;}
- float3 sand=make_float3(.54f,.48f,.32f)*(.96f+ripple*.075f);
- float reef=smoothf(.63f,.81f,patch)*smoothf(1.5f,9,-p.y)*.65f;
- return mix3(sand,make_float3(.13f,.19f,.105f),reef);
-}
+// Reef material and structure share the same seeded colony descriptor. The
+// palette belongs to a garden, with fine structure filtered by pixel footprint.
 // Project a solar ray refracted by the ACTUAL FFT slopes onto a local horizontal
 // receiver. This compact lens approximation is not a full photon/caustic solver.
 __device__ float2 sunLanding(float x,float z,float bedY,float fp,float3 sun,const float* Waves,const int* Origin){
@@ -121,6 +313,48 @@ __device__ float bedDetailWeight(float viewPath,float depth,float sunY){
  float path=fmaxf(0,viewPath)+sunWaterPath(depth,sunY);
  return smoothf(.04f,.12f,expf(-path*.038f));
 }
+__device__ float3 underwaterShade(float3 ro,float3 rd,float3 p,float3 n,float t,float material,float fp,float3 sun,float clarity,const int* Origin,const float* Waves,const float* Shrubs,float palette,float study){
+ float3 haze=make_float3(.018f,.18f,.25f)*(.45f+.55f*sat(sun.y))*expf(-fmaxf(0,-ro.y-5)*.016f);
+ float3 color=haze;
+ if(material==4||material==7||material==8){
+  if(material==7){
+   float3 local=make_float3(p.x-floorf(p.x/12)*12,p.y,p.z-floorf(p.z/12)*12);
+   float e=.003f,bump=surfaceNoise(local,n,70);
+   float3 gradient=make_float3(surfaceNoise(local+make_float3(e,0,0),n,70)-bump,surfaceNoise(local+make_float3(0,e,0),n,70)-bump,surfaceNoise(local+make_float3(0,0,e),n,70)-bump)/e;
+   n=norm3(n-(gradient-n*dot3(gradient,n))*(.005f*weight(fp,70)));
+  }
+  float depth=fmaxf(0,-p.y),nl=sat(dot3(n,sun));
+  float3 sunlight=waterTransmission(sunWaterPath(depth,sun.y)*.35f/clarity);
+  float caustic=seabedCaustic(p,depth,fp,sun,Waves,Origin);
+  float4 tex=make_float4(0,.19f,.22f,.20f);if(material==4)tex=reefSample(p.x,p.z,Origin,Shrubs);
+  float grain=.78f+.32f*noise2((p.x-floorf(p.x/12)*12)*27,(p.z-floorf(p.z/12)*12)*27);
+  float3 albedo=make_float3(tex.y,tex.z,tex.w)*lerpf(1,grain,weight(fp,12));
+  if(material==8)albedo=make_float3(.19f,.22f,.20f)*grain;
+  float shadow=1;
+  if(material==7){
+   albedo=make_float3(.66f,.30f,.075f);
+   if(palette<.22f)albedo=make_float3(.64f,.12f,.27f);
+   else if(palette<.44f)albedo=make_float3(.28f,.18f,.54f);
+   else if(palette<.65f)albedo=make_float3(.055f,.42f,.48f);
+   else if(palette<.82f)albedo=make_float3(.48f,.51f,.12f);
+   float polyps=surfaceNoise(make_float3(p.x-floorf(p.x/12)*12,p.y,p.z-floorf(p.z/12)*12),n,32);
+   albedo=albedo*lerpf(1,.55f+polyps*.85f,weight(fp,32));
+   if(study>.5f)albedo=mix3(albedo,make_float3(.88f,.65f,.73f),smoothf(-8.9f,-7.55f,p.y)*.85f);
+   float4 occluder=study>.5f?traceSpecimen(p+n*.025f,sun,Origin,6,study,fmaxf(.018f,fp)):traceCorals(p+n*.025f,sun,Shrubs,6,.01f);shadow=occluder.x<6?.22f:1;
+  }
+  if(material==8&&study>.5f){float4 shade=traceSpecimen(p+n*.025f,sun,Origin,8,study,fmaxf(.018f,fp));shadow=shade.x<8?.25f:1;}
+  color=albedo*(make_float3(.12f,.19f,.22f)+sunRadiance(sun)*sunlight*(.38f*nl*shadow))*(1+caustic);
+ }else if(material==5){
+  float cosine=sat(dot3(rd,n)),eta=1.333f,k=1-eta*eta*(1-cosine*cosine);
+  if(k>0){float3 air=norm3(rd*eta+n*(sqrtf(k)-eta*cosine));float fresnel=.02037f+.97963f*powf(1-cosine,5);color=mix3(sky(air,sun),haze*1.7f,fresnel);}
+  else color=haze*(1.4f+.5f*sat(n.y));
+ }
+ float3 transmission=waterTransmission(t*.35f/clarity);
+ // Water-column scattering plus a smooth optical horizon conceals the finite cache.
+ float scatter=expf(-t*(.013f+fmaxf(0,-ro.y)*.00025f)/clarity)*(1-smoothf(95,150,t));
+ transmission=transmission*scatter;
+ return color*transmission+haze*(make_float3(1,1,1)-transmission);
+}
 __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,const float* Hit,const float* Surface,const float* Reflection,const float* Waves,unsigned int* Pixels,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
  float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height),sun=sunDirection(C);
@@ -149,7 +383,7 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,
   float nl=sat(dot3(n,sun)),daylight=smoothf(-.04f,.12f,sun.y);
   float beamShadow=1;
   if(depth<18&&t<4500)beamShadow=sat((terrainShadow(p+n*.3f,sun,Origin,fmaxf(fp,.5f))-.38f)/.62f);
-  float bedLight=.24f+.76f*sat(sun.y),caustic=C[13]>.5f?seabedCaustic(bp,bedDepth,fp,sun,Waves,Origin):0;
+  float bedLight=.24f+.76f*sat(sun.y);if(detail>0&&t<600)bedLight=.24f+.76f*sat(dot3(groundNormal(bp,Origin,fmaxf(.1f,fp)),sun));float caustic=C[13]>.5f?seabedCaustic(bp,bedDepth,fp,sun,Waves,Origin):0;
   float3 bedIrradiance=make_float3(.10f,.14f,.18f)+sunRadiance(sun)*(bedLight*.28f*beamShadow);
   float3 scatter=make_float3(.006f,.058f,.075f)*(.50f+daylight*.50f);
   // More turquoise light escapes thin wave crests. It is gated by depth and
@@ -165,7 +399,8 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,
   float3 foamLight=make_float3(.18f,.23f,.26f)+sunRadiance(sun)*((.23f*sat(sun.y)+.04f)*beamShadow);
   color=mix3(color,foamLight,foam);
  }
- if(material>0)color=aerialPerspective(color,ro,rd,t,sun);
+ if(material>=4)color=underwaterShade(ro,rd,p,n,t,material,fp,sun,C[12]>0?C[12]:1,Origin,Waves,Shrubs,Hit[b+3],C[14]);
+ else if(material>0)color=aerialPerspective(color,ro,rd,t,sun);
  if(C[10]==1&&material>0){float level=log2f(fmaxf(1,fp));color=mix3(make_float3(.1f,.8f,.6f),make_float3(.9f,.25f,.12f),sat(level/6));}
  if(C[10]==2&&material>0)color=(n+make_float3(1,1,1))*.5f;
  color=color*C[11];color=make_float3(linearToDisplay(color.x),linearToDisplay(color.y),linearToDisplay(color.z));Pixels[y*width+x]=pack(color);
@@ -174,4 +409,3 @@ __global__ void probeWorld(const float* Points,const int* Origin,const float* Wa
  int i=(int)(blockIdx.x*blockDim.x+threadIdx.x);if(i>=count)return;int b=i*4;
  float x=Points[b],z=Points[b+1],fp=Points[b+2];Result[b]=ground(x,z,Origin,fp);float4 w=ocean(x,z,fp,Waves,Origin);Result[b+1]=w.x;Result[b+2]=w.y;Result[b+3]=w.w;
 }
-

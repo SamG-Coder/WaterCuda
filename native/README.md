@@ -85,3 +85,5 @@ The native host uses the same spectrum cache, four CUDA FFT cascades, ocean mip 
 The Windows viewer uses the Win32 API and GDI for presentation, avoiding extra windowing dependencies. Rendering happens on the NVIDIA GPU, then the final RGBA image is copied to CPU memory, converted to the Windows pixel layout and presented. It is **not zero-copy CUDA/graphics interop**. The displayed CUDA time excludes image readback and window presentation; the title's FPS includes them. Direct graphics interop could improve presentation overhead later without changing the shared `.cu` files.
 
 `build/` and rendered images are ignored by Git. The native executable is built locally, not added to the GitHub Pages payload.
+
+Underwater preview: `--view reef` or key **7** (seed 884). Q descends below the surface. The native and browser viewers share the same seeded seabed, depth habitat and reef cache kernels. See [underwater notes](../docs/underwater.md) for the current height-field limitations.

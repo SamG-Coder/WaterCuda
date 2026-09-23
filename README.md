@@ -38,11 +38,15 @@ Open **http://localhost:8090** in Chrome or Edge. On Windows, double-click `STAR
 - Begin drift moves the camera; Pause ocean freezes wave time. Save image exports the computed frame without the interface.
 - Under the surface includes footprint/normal diagnostics and real GPU checks.
 
+Use **7** or **Dive reef** for the underwater preview (seed 884). Q/E now allow diving below sea level.
+
 ## Generation and level of detail
 
 **World:** deterministic 4,800 m cells contain bounded procedural islands or open water. Integer cell identities are separate from camera-relative floating-point positions. Visiting new cells does not allocate persistent island meshes or grow memory usage.
 
 **Terrain:** the ray tracer traverses cells, rejects island bounds, then evaluates the shared height field. Broad island silhouettes remain present; high-frequency relief and material grain fade with the projected pixel footprint. The current algorithm is bounded analytical ray marching, not a quadtree mesh or a precomputed min/max hierarchy.
+
+**Underwater:** a continuous seeded seabed connects island shelves across open ocean. Large reef regions contain irregular raised outcrops separated by empty sand/rock areas. Depth controls living cover and growth forms. See [underwater implementation notes](docs/underwater.md) for current limits and validation.
 
 **Water:** four 256 × 256 spectral cascades replace the small analytic wave sum that produced regular crosshatching. CUDA generates a seeded directional Phillips spectrum, evolves it with deep-water dispersion, performs row/column inverse FFTs, and builds height/slope/energy mipmaps. Patch sizes are 32, 128, 512 and 2,048 metres, covering approximately 0.35–192 m wavelengths. Ray intersections use the resulting displaced height field. Trilinear mip sampling follows the projected pixel footprint; lost slope variance goes into shading roughness. Integer modular sampling preserves the field when the origin changes. The combined ocean repeats spatially every 2,048 m; island descriptors are independent.
 
@@ -61,7 +65,7 @@ npm test
 npm run test:native
 ```
 
-`npm test` translates all twelve CUDA entry points and runs seventeen Node tests for free flight, focus handling, diagonal speed, frame-rate independence, world rebasing, seed validation and render alignment, cached wave scheduling, sea looks, shader contracts and the browser fixture server. `test:native` needs a C++17 compiler (`g++`, or set `CXX`), checks terrain against dense traversal and computes an independent double-precision CPU inverse FFT. It regenerates `tests/ocean-reference.json`, used by browser GPU checks.
+`npm test` translates all fifteen CUDA entry points and runs eighteen Node tests for free flight, focus handling, diagonal speed, frame-rate independence, world rebasing, seed validation and render alignment, cached wave scheduling, sea looks, shader contracts and the browser fixture server. `test:native` needs a C++17 compiler (`g++`, or set `CXX`), checks terrain against dense traversal and computes an independent double-precision CPU inverse FFT. It regenerates `tests/ocean-reference.json`, used by browser GPU checks.
 
 Open `http://localhost:8090/?test=1` to execute ten GPU checks in the actual browser. They check cached/eager wave equivalence, determinism, terrain and wave rebasing, distant integer coordinates, seed variation, unresolved wave energy, agreement with the independent CPU FFT and WebGPU validation errors.
 

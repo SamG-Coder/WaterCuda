@@ -57,16 +57,138 @@ __device__ float islandHeight(float x,float z,Island a,float fp){
  return base+detail*smoothf(2,32,base)+coastDetail;
 
 }
-__device__ float ground(float x,float z,const int* Origin,float fp){return islandHeight(x,z,describeIsland((int)floorf(x/CELL),(int)floorf(z/CELL),Origin),fp);}
-__device__ float3 groundNormal(float3 p,const int* Origin,float fp){
- float e=fmaxf(.4f,fp*.7f);int cx=(int)floorf(p.x/CELL),cz=(int)floorf(p.z/CELL);
- float lx=p.x-(float)cx*CELL,lz=p.z-(float)cz*CELL;
- if(lx>=e&&lz>=e&&lx+e<CELL&&lz+e<CELL){
-  // All four taps use one descriptor; keep the boundary fallback for large footprints.
-  Island a=describeIsland(cx,cz,Origin);
-  return norm3(make_float3(islandHeight(p.x-e,p.z,a,fp)-islandHeight(p.x+e,p.z,a,fp),2*e,islandHeight(p.x,p.z-e,a,fp)-islandHeight(p.x,p.z+e,a,fp)));
+// Continuous seeded ocean geography. Integer lattice IDs include the floating
+// origin; coordinates never become large floats. Scales divide the 4800 m cell.
+__device__ float bedNoise(float x,float z,int scale,const int* Origin,unsigned int salt){
+ float u=x/(float)scale,v=z/(float)scale;int ix=(int)floorf(u),iz=(int)floorf(v);
+ unsigned int gx=(unsigned int)ix+(unsigned int)Origin[0]*(4800u/(unsigned int)scale);
+ unsigned int gz=(unsigned int)iz+(unsigned int)Origin[1]*(4800u/(unsigned int)scale);
+ float fx=fractf(u),fz=fractf(v);fx=fx*fx*(3-2*fx);fz=fz*fz*(3-2*fz);
+ unsigned int seed=(unsigned int)Origin[2]+salt;
+ return lerpf(lerpf(hash2((int)gx,(int)gz,seed),hash2((int)(gx+1u),(int)gz,seed),fx),lerpf(hash2((int)gx,(int)(gz+1u),seed),hash2((int)(gx+1u),(int)(gz+1u),seed),fx),fz);
+}
+__device__ float oceanFloor(float x,float z,const int* Origin,float fp){
+ float basin=bedNoise(x,z,1200,Origin,1103u),ridge=1-fabsf(bedNoise(x,z,600,Origin,1104u)*2-1);
+ float shelf=smoothf(.32f,.72f,basin);
+ float height=-92+65*shelf+20*ridge*ridge*ridge;
+ height+=(bedNoise(x,z,120,Origin,1105u)-.5f)*8*weight(fp,1.0f/120);
+ height+=(bedNoise(x,z,24,Origin,1106u)-.5f)*1.3f*weight(fp,1.0f/24);
+ return fminf(-5,height);
+}
+__device__ float seabedBase(float x,float z,const int* Origin,float fp){
+ float island=islandHeight(x,z,describeIsland((int)floorf(x/CELL),(int)floorf(z/CELL),Origin),fp);
+ if(island>=-18)return island;
+ // Foundations blend into the continuous floor; empty cells have ocean terrain too.
+ return lerpf(oceanFloor(x,z,Origin,fp),island,smoothf(-45,-18,island));
+}
+// Coral gardens span tens to hundreds of metres. They share a limestone
+// framework, while two warped colony scales break up spacing and silhouettes.
+// The grid is only a lookup address: it never becomes a visible planting pattern.
+__device__ float4 coralLayer(float x,float z,float fp,const int* Origin,int scale,unsigned int salt,float group,float depth){
+ int ix=(int)floorf(x/(float)scale),iz=(int)floorf(z/(float)scale);
+ unsigned int gx=(unsigned int)ix+(unsigned int)Origin[0]*(4800u/(unsigned int)scale);
+ unsigned int gz=(unsigned int)iz+(unsigned int)Origin[1]*(4800u/(unsigned int)scale);
+ unsigned int seed=(unsigned int)Origin[2]+salt;
+ float chance=hash2((int)gx,(int)gz,seed);
+ if(chance<.10f)return make_float4(0,0,0,0);
+ float size=hash2((int)gx,(int)gz,seed+1u),variant=hash2((int)gx,(int)gz,seed+2u);
+ float cx=((float)ix+.5f)*(float)scale+(variant-.5f)*(float)scale*.07f;
+ float cz=((float)iz+.5f)*(float)scale+(hash2((int)gx,(int)gz,seed+3u)-.5f)*(float)scale*.07f;
+ float radius=(float)scale*(.26f+.20f*size),dx=(x-cx)/radius,dz=(z-cz)/radius;
+ float angle=chance*2*PI,ux=dx*cosf(angle)+dz*sinf(angle),uz=-dx*sinf(angle)+dz*cosf(angle);
+ float r=sqrtf(ux*ux*(1+variant*.8f)+uz*uz);
+ r+=(noise2(ux*3+chance*19,uz*3+chance*13)-.5f)*.22f*smoothf(0,.4f,r);
+ float edge=1-smoothf(.72f,.98f,r);
+ float cellEdge=fmaxf(fabsf(x/(float)scale-(float)ix-.5f),fabsf(z/(float)scale-(float)iz-.5f));edge*=1-smoothf(.43f,.5f,cellEdge);
+ float style=floorf(fractf(group*.35f+variant)*4),palette=fractf(group*.27f+chance);
+ if(smoothf(18,42,depth)>chance)style=variant<.7f?1:3;
+ if(edge<=0)return make_float4(0,0,style,palette);
+ float broad=fmaxf(0,1-r*r),height=0;
+ float scaleHeight=(.35f+size*.75f)*((float)scale/12);
+ if(style<1){ // Irregular massive / boulder heads, merged into the framework.
+  float lobes=.72f+.28f*noise2(ux*4+chance*31,uz*4+chance*17);
+  height=sqrtf(broad)*edge*lobes*scaleHeight;
+ }else if(style<2){ // Broad, uneven table and foliose tiers.
+  float skew=r+(noise2(ux*5+variant*13,uz*5)-.5f)*.13f;
+  height=(.35f+.28f*(1-smoothf(.48f,.55f,skew))+.24f*(1-smoothf(.22f,.28f,skew)))*edge*scaleHeight;
+ }else if(style<3){ // Seeded thickets: many unequal rounded branches.
+  float fingers=0;int count=14+(int)(chance*12);
+  for(int k=0;k<count;k++){
+   float phase=angle+(float)k*2.399963f;
+   float reach=.08f+.65f*hash2((int)gx+k,(int)gz,seed+16u);
+   float fx=ux-cosf(phase)*reach,fz=uz-sinf(phase)*reach;
+   float radius2=.004f+.009f*hash2((int)gx+k,(int)gz,seed+17u);
+   float cap=sqrtf(fmaxf(0,1-(fx*fx+fz*fz)/radius2));
+   fingers=fmaxf(fingers,cap*(.35f+hash2((int)gx+k,(int)gz,seed+18u)*.8f));
+  }
+  height=(.16f*broad+fingers*weight(fp,2))*edge*scaleHeight;
+ }else{ // Encrusting / rubble growth with low folded lobes.
+  float fold=.5f+.5f*sinf(r*19+variant*5+noise2(ux*3,uz*3)*3);
+  height=(.18f+.30f*fold*weight(fp,1))*broad*edge*scaleHeight;
  }
- return norm3(make_float3(ground(p.x-e,p.z,Origin,fp)-ground(p.x+e,p.z,Origin,fp),2*e,ground(p.x,p.z-e,Origin,fp)-ground(p.x,p.z+e,Origin,fp)));
+ return make_float4(height,edge,style,palette);
+}
+// Payload: framework + colony relief, living cover, dominant growth form, colour.
+__device__ float4 reefColony(float x,float z,float base,float fp,const int* Origin){
+ float habitat=smoothf(3,8,-base)*(1-smoothf(30,55,-base));
+ if(habitat<.001f)return make_float4(0,0,0,0);
+ int ix=(int)floorf(x/120),iz=(int)floorf(z/120);
+ unsigned int gx=(unsigned int)ix+(unsigned int)Origin[0]*40u,gz=(unsigned int)iz+(unsigned int)Origin[1]*40u;
+ unsigned int seed=(unsigned int)Origin[2]+1360u;
+ float group=hash2((int)gx,(int)gz,seed),size=hash2((int)gx,(int)gz,seed+1u);
+ if(group<.34f)return make_float4(0,0,0,0);
+ float lx=x-(float)ix*120,lz=z-(float)iz*120;
+ float cx=60+(hash2((int)gx,(int)gz,seed+2u)-.5f)*9,cz=60+(hash2((int)gx,(int)gz,seed+3u)-.5f)*9;
+ float radius=24+size*28,dx=(lx-cx)/radius,dz=(lz-cz)/(radius*(.7f+.25f*group));
+ float warp=(bedNoise(x,z,24,Origin,1364u)-.5f)*.35f;
+ float r=sqrtf(dx*dx+dz*dz)+warp;
+ // Regional seed noise leaves entire reef-free stretches, not tiny random holes.
+ float province=smoothf(.34f,.56f,bedNoise(x,z,600,Origin,1370u));
+ float mask=(1-smoothf(.60f,1,r))*habitat*province;
+ mask*=smoothf(0,7,lx)*smoothf(0,7,lz)*(1-smoothf(113,120,lx))*(1-smoothf(113,120,lz));
+ if(mask<.001f)return make_float4(0,0,0,0);
+ // One large living reef outcrop, with uneven shoulders and secondary buttresses.
+ float dome=powf(fmaxf(0,1-r*r),.8f);
+ float foundation=(3+size*12)*dome*mask;
+ foundation*=.80f+.30f*bedNoise(x,z,12,Origin,1365u);
+ float wx=x+(bedNoise(x,z,12,Origin,1212u)-.5f)*5;
+ float wz=z+(bedNoise(x,z,12,Origin,1213u)-.5f)*5;
+ // Densely overlapping metre-scale colonies and sub-colonies carpet the mound.
+ float4 large=coralLayer(wx,wz,fp,Origin,6,1230u,group,-base);
+ float4 small=coralLayer(wx+.31f,wz-.71f,fp,Origin,1,1270u,group,-base);
+ // Shallow water supports branching thickets; deeper zones favour low plates.
+ float deep=smoothf(18,42,-base);
+ float choose=large.y<.20f&&small.y>.3f?1:0;
+ float colonies=(large.x*lerpf(4.0f,1.4f,deep)+small.x*lerpf(1.4f,.6f,deep))*mask*weight(fp,.3f);
+ float height=fminf(foundation,fmaxf(0,-1.8f-base));
+ float cover=smoothf(.08f,.35f,mask)*(.22f+.78f*smoothf(.03f,.45f,fmaxf(large.y,small.y)));
+ float unresolved=smoothf(.4f,3,fp);
+ return make_float4(height,lerpf(cover,mask*.85f,unresolved),lerpf(large.z,small.z,choose),lerpf(large.w,small.w,choose));
+}
+__device__ float ground(float x,float z,const int* Origin,float fp){
+ float base=seabedBase(x,z,Origin,fp);if(base>=-2.5f||base<=-65)return base;
+ return base+reefColony(x,z,base,fp,Origin).x;
+}
+__device__ float3 groundNormal(float3 p,const int* Origin,float fp){
+ float e=fmaxf(.08f,fp*.7f);
+ if(p.y<0)return norm3(make_float3(ground(p.x-e,p.z,Origin,fp)-ground(p.x+e,p.z,Origin,fp),2*e,ground(p.x,p.z-e,Origin,fp)-ground(p.x,p.z+e,Origin,fp)));
+ e=fmaxf(.4f,e);int cx=(int)floorf(p.x/CELL),cz=(int)floorf(p.z/CELL);Island a=describeIsland(cx,cz,Origin);
+ return norm3(make_float3(islandHeight(p.x-e,p.z,a,fp)-islandHeight(p.x+e,p.z,a,fp),2*e,islandHeight(p.x,p.z-e,a,fp)-islandHeight(p.x,p.z+e,a,fp)));
+}
+// Underwater visibility has a finite optical range, while the floor itself is
+// generated at every world coordinate. No island AABB can cull the ocean floor.
+__device__ float traceSeabed(float3 ro,float3 rd,const int* Origin,float limit,float cone){
+ float t=.04f,previous=t,stop=fminf(limit,150);
+ float horizontal=sqrtf(rd.x*rd.x+rd.z*rd.z);
+ int budget=(int)fminf(4096,ceilf(stop/.025f)+2);
+ for(int i=0;i<budget;i++){
+  if(t>stop)return -1;float3 p=ro+rd*t;float fp=fmaxf(.03f,t*cone);
+  float gap=p.y-ground(p.x,p.z,Origin,fp);
+  if(gap<=0){float lo=previous,hi=t;for(int j=0;j<8;j++){float mid=(lo+hi)*.5f;float3 q=ro+rd*mid;if(q.y>ground(q.x,q.z,Origin,fmaxf(.03f,mid*cone)))lo=mid;else hi=mid;}return (lo+hi)*.5f;}
+  if(p.y>8&&rd.y>=0)return -1;
+  previous=t;float slope=gap>8?3:8;t+=fmaxf(.01f,(gap>8?gap-6:gap)/(fabsf(rd.y)+slope*horizontal+.001f));
+ }
+ return -1;
 }
 // DDA over cells, then bounded height-field stepping inside each island box.
 // Fixed budgets bound GPU work. The draw distance is finite; the seeded world is not.

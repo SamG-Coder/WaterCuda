@@ -12,7 +12,7 @@ export function moveCamera(camera,origin,keys,dt,speed,drifting=false){
  const boost=keys.has('ShiftLeft')||keys.has('ShiftRight'),slow=keys.has('KeyZ');
  const step=speed*dt*(boost?5:1)*(slow?.2:1);for(let i=0;i<3;i++)camera[i]+=v[i]*step;
  if(drifting&&!forward&&!side&&!vertical){camera[0]+=Math.sin(camera[3])*speed*dt*.3;camera[2]+=Math.cos(camera[3])*speed*dt*.3;}
- camera[1]=Math.max(2.6*camera[6]+.5,Math.min(12000,camera[1]));rebase(camera,origin);
+ camera[1]=Math.max(-110,Math.min(12000,camera[1]));rebase(camera,origin);
 }
 export class FlightInput{
  constructor(canvas,camera,{onShortcut=()=>{},onSpeed=()=>{},onLock=()=>{}}={}){

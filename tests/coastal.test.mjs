@@ -16,7 +16,7 @@ function fakeEngine(){
  const e=new Engine(),dispatches=[];
  const encoder={copyBufferToTexture(){}};
  e.runtime={write(){},idle:()=>Promise.resolve(),batch:()=>({encoder,dispatch(call){dispatches.push(call);return this;},endPass(){return this;},submit(){return this;}})};
- Object.assign(e,{context:{getCurrentTexture:()=>({})},pixels:{gpuBuffer:{}},pending:0,frames:0,width:64,height:32,cacheShrubCall:'shrubs',lastShrubState:null,cacheSpectrumCall:'cache',oceanCalls:[['advance',[]],['fft',[]]],calls:{tracePrimary:'trace',traceVegetation:'foliage',reflectOcean:'reflect',shadeOcean:'shade'},lastSpectrumSeed:null,lastOceanState:null,spectrumBuilds:0,oceanUpdates:0});
+ Object.assign(e,{context:{getCurrentTexture:()=>({})},pixels:{gpuBuffer:{}},pending:0,frames:0,width:64,height:32,cacheReefCall:'reef',lastReefState:null,cacheShrubCall:'shrubs',lastShrubState:null,cacheSpectrumCall:'cache',oceanCalls:[['advance',[]],['fft',[]]],calls:{tracePrimary:'trace',traceVegetation:'foliage',reflectOcean:'reflect',shadeOcean:'shade'},lastSpectrumSeed:null,lastOceanState:null,spectrumBuilds:0,oceanUpdates:0});
  return {e,dispatches};
 }
 test('seed coefficients cache once; camera motion and rebasing never reseed the ocean',async()=>{
@@ -49,4 +49,14 @@ test('sea looks change only appearance uniforms and preserve camera/time/world c
  }
  assert.throws(()=>applySeaLook(new Float32Array(16),'missing'));
  assert.throws(()=>applySeaLook(new Float32Array(3),'coastal'));
+});
+
+test('reef cache follows underwater world patches, independent of wave time and lighting',async()=>{
+ const {e,dispatches}=fakeEngine(),c=new Float32Array(16),o=new Int32Array([0,0,884,0]);
+ const frame=async()=>{dispatches.length=0;e.frame(c,o);await e.runtime.idle();return dispatches.includes('reef');};
+ assert.equal(await frame(),false);c[1]=-8;assert.equal(await frame(),true);
+ c[5]=30;c[6]=2;c[8]=.4;c[0]=11;assert.equal(await frame(),false);
+ c[0]=12;assert.equal(await frame(),true);o[2]=42;assert.equal(await frame(),true);
+ o[0]=1;assert.equal(await frame(),true);c[1]=10;c[0]=120;assert.equal(await frame(),false);
+ c[1]=-5;assert.equal(await frame(),true);
 });

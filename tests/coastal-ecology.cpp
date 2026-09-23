@@ -63,7 +63,7 @@ int main(){
   float old=referenceIslandHeight(island.x+mx,island.z+mz,island,.2f);
   if(old< -3&&h>old+2){submergedBars++;if(h>=-1.79f)return 11;if(h>bestBar){bestBar=h;barPoint=make_float3(island.x+mx,h,island.z+mz);}}
   float rebased=ground(island.x+mx-CELL,island.z+mz+CELL,shift,.2f);
-  if(fabsf(h-rebased)>.025f)return 6;
+  if(fabsf(ground(island.x+mx,island.z+mz,o,.2f)-rebased)>.025f)return 6;
   if(h>0&&h<2)emerged++;
  }
  if(count<100||hits<count*.75f||emerged<10||submergedBars<20||bestBar< -3||bestBar>=0)return 7;

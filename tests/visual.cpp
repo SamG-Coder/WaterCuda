@@ -19,9 +19,10 @@ int main(int argc,char**argv){try{
  if(view=="sunset"){C[7]=1.05;C[8]=.16;C[6]=.65;}
  if(argc>5){C[0]=std::stof(argv[5]);C[1]=std::stof(argv[6]);C[2]=std::stof(argv[7]);C[3]=std::stof(argv[8]);C[4]=std::stof(argv[9]);}
  std::vector<float> shrubs(SHRUB_FLOATS);buildShrubAtlas(shrubs.data());blockDim={1,1,1};threadIdx={0,0,0};for(int z=0;z<64;z++)for(int x=0;x<64;x++){blockIdx={(unsigned)x,(unsigned)z,0};cacheShrubs(C,O,shrubs.data());}
+ if(C[1]<0){for(int z=0;z<1024;z++)for(int x=0;x<1024;x++){blockIdx={(unsigned)x,(unsigned)z,0};cacheReef(C,O,shrubs.data());}}
  auto waves=cpuOcean(C[5],C[6],seed);int count=width*height;std::vector<float> hit(count*4),surface(count*4),reflection(count*4);std::vector<unsigned int> pixels(count);
  #pragma omp parallel for
- for(int y=0;y<height;y++){blockDim={1,1,1};threadIdx={0,0,0};for(int x=0;x<width;x++){blockIdx={(unsigned)x,(unsigned)y,0};tracePrimary(C,O,waves.data(),hit.data(),surface.data(),width,height);traceVegetation(C,O,shrubs.data(),hit.data(),surface.data(),width,height);}}
+ for(int y=0;y<height;y++){blockDim={1,1,1};threadIdx={0,0,0};for(int x=0;x<width;x++){blockIdx={(unsigned)x,(unsigned)y,0};tracePrimary(C,O,waves.data(),shrubs.data(),hit.data(),surface.data(),width,height);traceVegetation(C,O,shrubs.data(),hit.data(),surface.data(),width,height);}}
  #pragma omp parallel for
  for(int y=0;y<height;y++){blockDim={1,1,1};threadIdx={0,0,0};for(int x=0;x<width;x++){blockIdx={(unsigned)x,(unsigned)y,0};reflectOcean(C,O,shrubs.data(),hit.data(),surface.data(),reflection.data(),width,height);}}
  #pragma omp parallel for
