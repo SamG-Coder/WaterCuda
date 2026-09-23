@@ -60,3 +60,9 @@ test('reef cache follows underwater world patches, independent of wave time and 
  o[0]=1;assert.equal(await frame(),true);c[1]=10;c[0]=120;assert.equal(await frame(),false);
  c[1]=-5;assert.equal(await frame(),true);
 });
+
+test('changing weather while paused updates wave metadata without rebuilding seed coefficients',async()=>{
+ const {e,dispatches}=fakeEngine(),c=new Float32Array(16),o=new Int32Array([0,0,884,0]);
+ e.frame(c,o);await e.runtime.idle();dispatches.length=0;c[15]=4;e.frame(c,o);await e.runtime.idle();
+ assert.ok(dispatches.includes('advance'));assert.ok(!dispatches.includes('cache'));assert.equal(e.spectrumBuilds,1);
+});

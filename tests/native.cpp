@@ -1,5 +1,6 @@
 #include "cuda_compat.hpp"
 #include "../kernels/common.cu"
+#include "../kernels/weather.cu"
 #include "../kernels/terrain.cu"
 #include "../kernels/shrubs.cu"
 #include "terrain-reference.hpp"
@@ -219,7 +220,7 @@ int main(){
  }
  std::cout<<"200 near-waterline hillside rays: mismatches="<<lowMisses<<", maximum distance error="<<lowError<<" m\n";if(lowMisses||lowError>3)return 3;
  int origin[4]={0,0,42,0};float residual=0;auto waves=cpuOcean();const float* Waves=waves.data();
- {std::vector<float> flat(4*OCEAN_TEXELS*4,0);int shifted[4]={1,-1,42,0};float changes=0;
+ {std::vector<float> flat(4*OCEAN_TEXELS*4+4,0);int shifted[4]={1,-1,42,0};float changes=0;
   float3 sun=norm3(make_float3(.3f,.7f,.5f));
   for(int i=0;i<160;i++){
    float3 p={1850+i*.37f,-1-(i%11)*.7f,1250+i*.17f};float depth=-p.y;

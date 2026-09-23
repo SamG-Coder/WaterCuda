@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 struct Scene {
- std::array<float,16> camera{1250,210,650,.52f,-.10f,3,1,-.7f,.7f,1,0,1,1.5f,1,0,0};
+ std::array<float,16> camera{1250,210,650,.52f,-.10f,3,1,-.7f,22,1,0,1,1.5f,1,0,0};
  std::array<int,4> origin{0,0,884,0};
  void preset(const std::string& name);
  void rebase();
@@ -20,5 +20,6 @@ public:
  void selfTest();
  std::string deviceName() const;
  float gpuMs() const;
+ std::array<float,5> stageMs() const;
 };
 void saveBmp(const std::string& path,const std::vector<std::uint32_t>& rgba,int width,int height);

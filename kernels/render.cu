@@ -223,7 +223,7 @@ __global__ void reflectOcean(const float* C,const int* Origin,const float* Shrub
  if(Hit[b+1]!=2||C[9]<.5f||Hit[b]>6500)return;
  float3 n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),rd=cameraRay(C,px,py,width,height),sun=sunDirection(C);
  float3 rr=rd-n*(2*dot3(rd,n)),ro=make_float3(C[0],C[1],C[2])+rd*Hit[b]+n*.3f;
- float3 reflected=skyReflection(rr,sun,Hit[b+3]);float cone=1.05f/(float)height,rt=traceLand(ro,rr,Origin,6500,cone);
+ float3 reflected=weatherSky(ro,rr,sun,C[5],C[15],Origin,0);float cone=1.05f/(float)height,rt=traceLand(ro,rr,Origin,6500,cone);
  if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 ln=groundNormal(p,Origin,fp);float shadow=terrainShadow(p+ln*.4f,sun,Origin,fp);float3 land=shrubGround(landColor(p,ln,sun,Origin,fp),p,ln,sun,Origin,Shrubs,fp,Hit[b]+rt)*shadow;
  land=wetSandSheen(land,p,ln,rr,sun,Origin,fp,shadow);land=aerialPerspective(land,ro,rr,rt,sun);reflected=mix3(land,reflected,smoothf(4800,6500,Hit[b]));}
  if(Hit[b]<180){float4 shrub=traceShrubs(ro,rr,Origin,Shrubs,rt>0?rt:6500,C[5],C[6],cone);
@@ -360,13 +360,13 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,
  float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height),sun=sunDirection(C);
  float t=Hit[b],material=Hit[b+1],fp=Hit[b+2];float3 p=ro+rd*t,n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),color=make_float3(0,0,0);
  // Sky/cloud evaluation is only needed when it survives the material branch.
- if(material==0)color=sky(rd,sun);
+ if(material==0)color=weatherSky(ro,rd,sun,C[5],C[15],Origin,1);
  if(material==1){float shadow=terrainShadow(p+n*.4f,sun,Origin,fp)*shrubContact(p,Origin,Shrubs,fp);color=shrubGround(landColor(p,n,sun,Origin,fp),p,n,sun,Origin,Shrubs,fp,t)*shadow;color=wetSandSheen(color,p,n,rd,sun,Origin,fp,shadow);}
  if(material==3){color=shrubColor(p,n,rd,sun,Origin,Shrubs,fp)*terrainShadow(p+make_float3(0,.1f,0),sun,Origin,fp);n=norm3(make_float3(-rd.x,.6f,-rd.z));}
  if(material==2){
   float nv=sat(-dot3(n,rd)),fresnel=waterFresnel(nv);float3 rr=rd-n*(2*dot3(rd,n)),reflected=make_float3(0,0,0);
   if(C[9]>.5f&&t<6500&&Reflection[b+3]>0)reflected=filteredReflection(x,y,width,height,Hit,Surface,Reflection);
-  else reflected=skyReflection(rr,sun,Hit[b+3]);
+  else reflected=weatherSky(p,rr,sun,C[5],C[15],Origin,0);
   float depth=Surface[b+3],eta=.75019f,k=1-eta*eta*(1-nv*nv);float3 refracted=rd*eta+n*(eta*nv-sqrtf(fmaxf(0,k)));
   float clarity=C[12]>0?clampf(C[12],.35f,2.5f):1;
   float travel=fminf(300,depth/fmaxf(.15f,-refracted.y)),initialTravel=travel;
@@ -401,6 +401,39 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,
  }
  if(material>=4)color=underwaterShade(ro,rd,p,n,t,material,fp,sun,C[12]>0?C[12]:1,Origin,Waves,Shrubs,Hit[b+3],C[14]);
  else if(material>0)color=aerialPerspective(color,ro,rd,t,sun);
+ // Dim ambient surface terms at night; direct sunlight already follows the sun.
+ if(material>0&&C[14]<.5f){
+  float day=smoothf(-.18f,.06f,sun.y);color=color*lerpf(.025f,1,day);
+  if(day<1){
+  float3 moon=make_float3(-sun.x,-sun.y,-sun.z);
+  float cover=weatherAt(p.x,p.z,C[5],C[15],Origin).x;
+  float moonlight=(1-day)*sat(moon.y)*(1-cover*.85f);
+  color=color+make_float3(.004f,.007f,.012f)*(moonlight*(.25f+.75f*sat(dot3(n,moon))));
+  if(material==2)color=color+make_float3(.018f,.024f,.036f)*(moonlight*waterSunLobe(n,rd,moon,Hit[b+3],C[6]));
+  }
+ }
+ // Local weather changes with world position; rain is composited only in front
+ // of the already-known visible hit. Impacts reuse that hit, never trace collisions.
+ if(C[15]>=0&&C[14]<.5f){
+  float4 local=weatherAt(ro.x,ro.z,C[5],C[15],Origin);
+  if(material>0&&material<4){
+   float4 w=weatherAt(p.x,p.z,C[5],C[15],Origin);
+   color=color*(1-w.x*.30f-w.z*.30f);
+   if(material==1||material==3){
+    float wet=w.w*smoothf(.1f,.9f,n.y);color=color*(1-wet*.30f);
+    float3 rr=rd-n*(2*dot3(rd,n));
+    float sheen=wet*(.012f+.09f*powf(1-sat(-dot3(rd,n)),5));
+    color=mix3(color,weatherSky(p,rr,sun,C[5],C[15],Origin,0),sheen);
+   }
+   if((material==1||material==2)&&t<160&&n.y>.4f){float impact=rainImpact(p,fp,C[5],w.y,Origin);color=color+make_float3(.055f,.070f,.085f)*impact;}
+   float fog=1-expf(-t*local.y*.00028f);color=mix3(color,make_float3(.17f,.22f,.28f)*lerpf(.015f,1,smoothf(-.18f,.06f,sun.y)),fog);
+  }
+  if(ro.y>=0){
+   float drops=rainVisibility(ro,rd,t,1.05f/(float)height,C[5],local.y,Origin);
+   color=mix3(color,make_float3(.55f,.65f,.75f)*lerpf(.025f,1,smoothf(-.18f,.06f,sun.y)),drops);
+   float flash=weatherFlash(ro.x,ro.z,C[5],local.z,Origin);color=color+make_float3(.35f,.40f,.52f)*flash;if(material==0)color=color+weatherBolt(ro,rd,C[5],local.z,Origin);
+  }else if(material>=4)color=color*(1-local.x*.18f-local.z*.25f);
+ }
  if(C[10]==1&&material>0){float level=log2f(fmaxf(1,fp));color=mix3(make_float3(.1f,.8f,.6f),make_float3(.9f,.25f,.12f),sat(level/6));}
  if(C[10]==2&&material>0)color=(n+make_float3(1,1,1))*.5f;
  color=color*C[11];color=make_float3(linearToDisplay(color.x),linearToDisplay(color.y),linearToDisplay(color.z));Pixels[y*width+x]=pack(color);

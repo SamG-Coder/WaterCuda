@@ -13,7 +13,7 @@ export class Engine{
   this.cacheReefCall=this.kernels.cacheReef.bind({C:this.camera,Origin:this.origin,Shrubs:this.shrubs});this.lastReefState=null;
   this.runtime.batch().dispatch(this.kernels.generateShrubAtlas.bind({Shrubs:this.shrubs}),[16,16,8]).submit();
   for(let level=1;level<8;level++)this.runtime.batch().dispatch(this.kernels.mipShrubAtlas.bind({Shrubs:this.shrubs},{level}),[Math.ceil((128>>level)/8),Math.ceil((128>>level)/8),8]).submit();
-  this.waves=this.runtime.createBuffer(87381*4*4*4,{label:'Four spectral cascades with mipmaps'});
+  this.waves=this.runtime.createBuffer((87381*4*4+4)*4,{label:'Four spectral cascades with mipmaps'});
   this.spectrum=this.runtime.createBuffer(256*256*4*8,{label:'Fourier spectrum'});this.fftPing=this.runtime.createBuffer(256*256*4*8,{label:'FFT intermediate'});
   this.initialSpectrum=this.runtime.createBuffer(256*256*4*16,{label:'Cached Gaussian Fourier coefficients'});
   this.cacheSpectrumCall=this.kernels.cacheOceanSpectrum.bind({Origin:this.origin,Initial:this.initialSpectrum});
@@ -38,7 +38,7 @@ export class Engine{
   [initial?this.kernels.advanceOceanSpectrum.bind({C:camera,Initial:initial,Spectrum:spectrum}):this.kernels.seedOcean.bind({C:camera,Origin:origin,Spectrum:spectrum}),[32,32,4]],
   [this.kernels.oceanFft.bind({Input:spectrum,Output:ping},{axis:0}),[256,4]],
   [this.kernels.oceanFft.bind({Input:ping,Output:spectrum},{axis:1}),[256,4]],
-  [this.kernels.packOcean.bind({Spatial:spectrum,Waves:waves}),[32,32,4]],
+  [this.kernels.packOcean.bind({C:camera,Spatial:spectrum,Waves:waves}),[32,32,4]],
   ...Array.from({length:8},(_,i)=>{const level=i+1,n=256>>level;return [this.kernels.oceanMip.bind({Waves:waves},{level}),[Math.ceil(n/8),Math.ceil(n/8),4]];})
  ];}
  frame(camera,origin){
@@ -52,7 +52,7 @@ export class Engine{
   const stages=[['spectrum',[]],['tracePrimary',[Math.ceil(this.width/8),Math.ceil(this.height/8)]],['traceVegetation',[Math.ceil(this.width/8),Math.ceil(this.height/8)]],['reflectOcean',[Math.ceil(this.width/8),Math.ceil(this.height/8)]],['shadeOcean',[Math.ceil(this.width/8),Math.ceil(this.height/8)]]];
   let batch=this.runtime.batch(timed?{timestampWrites:{querySet:this.queries,beginningOfPassWriteIndex:0,endOfPassWriteIndex:1}}:{});
   for(let i=0;i<stages.length;i++){if(i&&timed){batch.submit();batch=this.runtime.batch({timestampWrites:{querySet:this.queries,beginningOfPassWriteIndex:i*2,endOfPassWriteIndex:i*2+1}});}const [name,groups]=stages[i];if(i===0){if(this.lastSpectrumSeed!==origin[2]){batch.dispatch(this.cacheSpectrumCall,[32,32,4]);this.lastSpectrumSeed=origin[2];this.spectrumBuilds++;}
-    const state=[camera[5],camera[6],origin[2]];if(!this.lastOceanState||state.some((v,i)=>v!==this.lastOceanState[i])){for(const [call,g] of this.oceanCalls)batch.dispatch(call,g);this.lastOceanState=state;this.oceanUpdates++;}}else {batch.dispatch(this.calls[name],groups);}}
+    const state=[camera[5],camera[6],origin[2],camera[15]];if(!this.lastOceanState||state.some((v,i)=>v!==this.lastOceanState[i])){for(const [call,g] of this.oceanCalls)batch.dispatch(call,g);this.lastOceanState=state;this.oceanUpdates++;}}else {batch.dispatch(this.calls[name],groups);}}
   batch.endPass();
   batch.encoder.copyBufferToTexture({buffer:this.pixels.gpuBuffer,bytesPerRow:this.width*4,rowsPerImage:this.height},{texture:this.context.getCurrentTexture()},[this.width,this.height]);
   if(timed){this.timingBusy=true;batch.encoder.resolveQuerySet(this.queries,0,10,this.queryResolve,0);batch.encoder.copyBufferToBuffer(this.queryResolve,0,this.queryRead,0,80);}
@@ -73,9 +73,9 @@ export class Engine{
  }
  async validate(){
   const kernel=await this.loader.load('probeWorld');this.kernels.seedOcean??=await this.loader.load('seedOcean');const rt=this.runtime;
-  const points=rt.createBuffer(64),origin=rt.createBuffer(16),result=rt.createBuffer(64),waves=rt.createBuffer(87381*4*4*4),camera=rt.createBuffer(64),spectrum=rt.createBuffer(256*256*4*8),ping=rt.createBuffer(256*256*4*8);
+  const points=rt.createBuffer(64),origin=rt.createBuffer(16),result=rt.createBuffer(64),waves=rt.createBuffer((87381*4*4+4)*4),camera=rt.createBuffer(64),spectrum=rt.createBuffer(256*256*4*8),ping=rt.createBuffer(256*256*4*8);
   const initial=rt.createBuffer(256*256*4*16),shrubPatch=rt.createBuffer(16388*4);
-  const c=new Float32Array(16);c[5]=3;c[6]=1;rt.write(camera,c);
+  const c=new Float32Array(16);c[5]=3;c[6]=1;c[15]=-1;rt.write(camera,c);
   const data=new Float32Array([2400,2400,.2,0,4799.9,1000,.2,0,2000,2000,.2,0,2400,2400,128,0]);
   const invocation=kernel.bind({Points:points,Origin:origin,Waves:waves,Result:result},{count:4}),prepare=this.makeOceanCalls(camera,origin,waves,spectrum,ping);
   const cacheCall=this.kernels.cacheOceanSpectrum.bind({Origin:origin,Initial:initial}),cachedPrepare=this.makeOceanCalls(camera,origin,waves,spectrum,ping,initial);

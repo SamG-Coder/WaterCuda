@@ -20,16 +20,20 @@ function syncLookControls(){
  $('clarity').value=camera[12];$('clarityValue').value=camera[12].toFixed(2)+'×';$('azimuth').value=camera[7]*180/Math.PI;$('azimuthValue').value=Math.round(camera[7]*180/Math.PI)+'°';
 }
 function setLook(name){applySeaLook(camera,name);$('look').value=name;syncLookControls();}
-$('look').onchange=e=>{setLook(e.target.value);toast('Sea and light updated');};
+function selectHour(hour){camera[8]=10+((hour-camera[5]/60)%24+24)%24;$('daycycle').checked=true;}
+$('hour').oninput=e=>selectHour(Number(e.target.value));
+$('daycycle').onchange=e=>{if(e.target.checked)selectHour(Number($('hour').value));else camera[8]=Number($('sun').value);};
+$('weather').onchange=e=>{camera[15]=Number(e.target.value);};
+$('look').onchange=e=>{$('daycycle').checked=false;setLook(e.target.value);toast('Sea and light updated');};
 $('clarity').oninput=e=>{camera[12]=Number(e.target.value);$('clarityValue').value=camera[12].toFixed(2)+'×';};
 $('azimuth').oninput=e=>{camera[7]=Number(e.target.value)*Math.PI/180;$('azimuthValue').value=e.target.value+'°';};
 $('caustics').onchange=e=>camera[13]=Number(e.target.checked);
 $('wind').oninput=e=>{camera[6]=Number(e.target.value);$('windValue').value=camera[6].toFixed(1);};
-$('sun').oninput=e=>{camera[8]=Number(e.target.value);$('sunValue').value=camera[8]<.35?'Golden hour':'Daylight';};
+$('sun').oninput=e=>{$('daycycle').checked=false;camera[8]=Number(e.target.value);$('sunValue').value=camera[8]<.35?'Golden hour':'Daylight';};
 $('reflections').onchange=e=>camera[9]=Number(e.target.checked);
 $('debug').onchange=e=>camera[10]=Number(e.target.value);
 $('quality').onchange=()=>resizing=true;window.addEventListener('resize',()=>resizing=true);
-$('pause').onclick=()=>{paused=!paused;$('pause').textContent=paused?'Resume ocean':'Pause ocean';};
+$('pause').onclick=()=>{paused=!paused;$('pause').textContent=paused?'Resume world':'Pause world';};
 $('sail').onclick=()=>{drifting=!drifting;$('sail').innerHTML=drifting?'Stop drift <span>Ⅱ</span>':'Begin drift <span>→</span>';};
 function toggleUI(){const clean=document.body.classList.toggle('clean');$('restore').hidden=!clean;}
 $('hide').onclick=toggleUI;$('restore').onclick=toggleUI;
@@ -54,6 +58,7 @@ async function loop(now){
   if(resizing){resizing=false;const target=$('quality').value==='auto'?autoWidth:Number($('quality').value),{width,height}=renderSize(innerWidth,innerHeight,target);await engine.resize(width,height);$('resolution').textContent=width+' × '+height+' / WEBGPU';}
   if(engine.frame(camera,origin))frames++;
   if(now-lastStats>1000){$('fps').textContent=Math.round(frames*1000/(now-lastStats))+' FPS';frames=0;lastStats=now;
+   if(camera[8]>=10){const hour=((camera[8]-10+camera[5]/60)%24+24)%24;$('hour').value=hour;$('hourValue').value=String(Math.floor(hour)).padStart(2,'0')+':'+String(Math.floor(hour%1*60)).padStart(2,'0');}
    $('position').textContent='CELL '+origin[0].toLocaleString()+' / '+origin[1].toLocaleString();$('altitude').textContent='ALTITUDE '+Math.round(camera[1])+' M · SEED '+origin[2];
    $('timings').textContent=engine.timings?engine.timings.map(t=>t.name+': '+t.ms.toFixed(2)+' ms').join('\n')+'\nGPU total: '+engine.gpuMs.toFixed(2)+' ms':'GPU timestamps unavailable';
    $('flightStatus').dataset.position=[origin[0],origin[1],...Array.from(camera.slice(0,5))].join(',');}
@@ -63,6 +68,7 @@ async function loop(now){
 try{
  const url=new URL(location.href);if(url.searchParams.has('seed')){origin[2]=parseSeed(url.searchParams.get('seed'));$('seed').value=origin[2];}
  engine=await new Engine().init(canvas,message=>$('status').textContent=message);engine.onError=e=>{running=false;$('loading').classList.remove('done');$('status').textContent=String(e.message||e);};
- window.waterCuda={engine,camera,origin,preset,setLook,setRenderLoop(on){if(on&&!running){running=true;last=performance.now();requestAnimationFrame(loop);}else if(!on)running=false;}};setLook(['coastal','golden','swell'].includes(url.searchParams.get('look'))?url.searchParams.get('look'):'coastal');preset(['coast','aerial','water','shore','scrub','bars','reef','coral','family'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'coast');running=true;last=performance.now();await loop(last);await engine.runtime.idle();if(!running)throw Error('Renderer failed to produce its first frame.');$('loading').classList.add('done');document.body.dataset.ready='true';
+ const weatherModes={auto:0,clear:1,overcast:2,rain:3,storm:4};camera[15]=weatherModes[url.searchParams.get('weather')]??0;$('weather').value=String(camera[15]);
+ window.waterCuda={engine,camera,origin,preset,setLook,setRenderLoop(on){if(on&&!running){running=true;last=performance.now();requestAnimationFrame(loop);}else if(!on)running=false;}};setLook(['coastal','golden','swell'].includes(url.searchParams.get('look'))?url.searchParams.get('look'):'coastal');if(url.searchParams.get('clock')!=='manual'){const hour=Number(url.searchParams.get('hour')??12);selectHour(Number.isFinite(hour)?hour:12);}else $('daycycle').checked=false;preset(['coast','aerial','water','shore','scrub','bars','reef','coral','family'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'coast');running=true;last=performance.now();await loop(last);await engine.runtime.idle();if(!running)throw Error('Renderer failed to produce its first frame.');$('loading').classList.add('done');document.body.dataset.ready='true';
  if(url.searchParams.has('test')){document.querySelector('details').open=true;$('validate').click();}
 }catch(e){$('status').textContent=e.message+' Open in a recent Chrome or Edge browser with WebGPU enabled.';console.error(e);}

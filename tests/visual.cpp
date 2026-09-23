@@ -1,6 +1,7 @@
 // Offline reference image of the actual CUDA functions, not a second renderer.
 #include "cuda_compat.hpp"
 #include "../kernels/common.cu"
+#include "../kernels/weather.cu"
 #include "../kernels/terrain.cu"
 #include "../kernels/shrubs.cu"
 #include "shrub-atlas.hpp"

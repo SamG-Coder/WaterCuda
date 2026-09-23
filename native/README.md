@@ -55,9 +55,10 @@ The interactive window is currently Windows-only. The CUDA renderer and headless
 | Esc | Release captured mouse, or close the viewer |
 | Mouse wheel | Change flight speed; no application-defined upper cap |
 | 1–6 | Coast, aerial, waterline, shore, scrub, sandbars |
-| P | Pause or resume ocean animation |
+| P | Pause or resume waves and weather |
 | R / C | Toggle island reflections / caustics |
 | L | Cycle clear coast, golden hour, open sea swell |
+| T | Cycle automatic / clear / overcast / rain / thunderstorm |
 | G | Generate the next world seed |
 | + / − | Increase / decrease render resolution |
 | N | Cycle natural, pixel footprint, surface normals |
@@ -87,3 +88,7 @@ The Windows viewer uses the Win32 API and GDI for presentation, avoiding extra w
 `build/` and rendered images are ignored by Git. The native executable is built locally, not added to the GitHub Pages payload.
 
 Underwater preview: `--view reef` or key **7** (seed 884). Q descends below the surface. The native and browser viewers share the same seeded seabed, depth habitat and reef cache kernels. See [underwater notes](../docs/underwater.md) for the current height-field limitations.
+
+Dynamic weather uses the same `kernels/weather.cu` as WebGPU. Press **T** to cycle Auto, Clear, Overcast, Rain and Thunderstorm, or launch with `--weather storm`. **P** freezes weather and waves together. See [weather details](../docs/weather.md).
+
+The default sky follows a 24-minute day/night cycle. Use `--hour 18` for sunset, **J/K** to step the world hour, **L** for manual light, and **P** to pause. Changing the hour preserves weather history.

@@ -39,12 +39,13 @@ __global__ void oceanFft(const float2* Input,float2* Output,int axis){
  }
  for(int i=lane;i<256;i+=128){int index=layer*65536+(axis==0?line*256+i:i*256+line);Output[index]=values[i];}
 }
-__global__ void packOcean(const float2* Spatial,float* Waves){
+__global__ void packOcean(const float* C,const float2* Spatial,float* Waves){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y),layer=(int)blockIdx.z;if(x>=256||y>=256||layer>=4)return;
  int base=layer*65536,index=base+y*256+x,b=(layer*OCEAN_TEXELS+y*256+x)*4;
  float spacing=oceanPeriod(layer)/256;
  float dx=(Spatial[base+y*256+(x+1)%256].x-Spatial[base+y*256+(x+255)%256].x)/(2*spacing);
  float dz=(Spatial[base+((y+1)%256)*256+x].x-Spatial[base+((y+255)%256)*256+x].x)/(2*spacing);
+ if(x==0&&y==0&&layer==0){Waves[1398096]=C[5];Waves[1398097]=C[15]>=0?1:0;Waves[1398098]=C[15];Waves[1398099]=0;}
  Waves[b]=Spatial[index].x;Waves[b+1]=dx;Waves[b+2]=dz;Waves[b+3]=dx*dx+dz*dz;
 }
 __global__ void oceanMip(float* Waves,int level){
@@ -74,11 +75,12 @@ __device__ float4 ocean(float x,float z,float fp,const float* Waves,const int* O
   float sx=lerpf(a.y,b.y,blend),sz=lerpf(a.z,b.z,blend);h+=lerpf(a.x,b.x,blend);dx+=sx;dz+=sz;
   variance+=fmaxf(0,lerpf(a.w,b.w,blend)-sx*sx-sz*sz);
  }
- return make_float4(h,dx,dz,variance);
+ float gain=Waves[1398097]>.5f?weatherWaveGain(x,z,Waves[1398096],Waves[1398098],Origin):1;
+ return make_float4(h*gain,dx*gain,dz*gain,variance*gain*gain);
 }
 __device__ float waterHit(float3 ro,float3 rd,float cone,float wind,const float* Waves,const int* Origin){
  if(rd.y>=-0.00001f)return -1;float t=-ro.y/rd.y;if(t>FAR)return -1;
- float lo=fmaxf(.05f,(ro.y-8*wind)/(-rd.y)),hi=fminf(FAR,(ro.y+8*wind)/(-rd.y));
+ float lo=fmaxf(.05f,(ro.y-15*wind)/(-rd.y)),hi=fminf(FAR,(ro.y+15*wind)/(-rd.y));
  for(int i=0;i<12;i++){
   float3 p=ro+rd*t;float4 w=ocean(p.x,p.z,fmaxf(.12f,t*cone/fmaxf(.08f,-rd.y)),Waves,Origin);float gap=p.y-w.x;if(fabsf(gap)<.004f)break;
   if(gap>0)lo=t;else hi=t;float denom=rd.y-w.y*rd.x-w.z*rd.z,next=fabsf(denom)>.02f?t-gap/denom:(lo+hi)*.5f;t=next>lo&&next<hi?next:(lo+hi)*.5f;

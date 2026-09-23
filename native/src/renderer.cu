@@ -9,6 +9,7 @@
 #include <stdexcept>
 // These are the exact files compiled to WebGPU by the browser app.
 #include "../../kernels/common.cu"
+#include "../../kernels/weather.cu"
 #include "../../kernels/terrain.cu"
 #include "../../kernels/shrubs.cu"
 #include "../../kernels/ocean.cu"
@@ -29,14 +30,14 @@ void launchCheck(){CUDA(cudaGetLastError());}
 struct Renderer::Impl {
  Buffer<float> camera,waves,shrubs,hit,surface,reflection;
  Buffer<int> origin;Buffer<float4> initial;Buffer<float2> spectrum,ping;Buffer<unsigned int> pixels;
- Event begin,end;std::vector<std::uint32_t> host;int width=0,height=0,seed=-1;
+ Event begin,end,stages[5];std::array<float,5> stageTimes{};std::vector<std::uint32_t> host;int width=0,height=0,seed=-1;
  std::array<int,5> reefPatch{};bool reefValid=false;
- std::array<int,5> patch{};bool patchValid=false,oceanValid=false;float time=0,wind=0,ms=0;
+ std::array<int,5> patch{};bool patchValid=false,oceanValid=false;float time=0,wind=0,weather=0,ms=0;
  std::string name;
  Impl(){
   int count=0;CUDA(cudaGetDeviceCount(&count));if(!count)throw std::runtime_error("No CUDA-capable NVIDIA GPU found.");
   CUDA(cudaSetDevice(0));cudaDeviceProp prop{};CUDA(cudaGetDeviceProperties(&prop,0));name=prop.name;
-  camera.alloc(16);origin.alloc(4);waves.alloc(4*OCEAN_TEXELS*4);shrubs.alloc(SHRUB_FLOATS);
+  camera.alloc(16);origin.alloc(4);waves.alloc(4*OCEAN_TEXELS*4+4);shrubs.alloc(SHRUB_FLOATS);
   initial.alloc(4*65536);spectrum.alloc(4*65536);ping.alloc(4*65536);
   generateShrubAtlas<<<dim3(16,16,8),dim3(8,8)>>>(shrubs.p);launchCheck();
   for(int level=1;level<8;level++){int groups=((128>>level)+7)/8;mipShrubAtlas<<<dim3(groups,groups,8),dim3(8,8)>>>(shrubs.p,level);launchCheck();}
@@ -45,13 +46,13 @@ struct Renderer::Impl {
  void ocean(const Scene& s){
   camera.put(s.camera.data());origin.put(s.origin.data());
   if(seed!=s.origin[2]){cacheOceanSpectrum<<<dim3(32,32,4),dim3(8,8)>>>(origin.p,initial.p);launchCheck();seed=s.origin[2];oceanValid=false;}
-  if(!oceanValid||time!=s.camera[5]||wind!=s.camera[6]){
+  if(!oceanValid||time!=s.camera[5]||wind!=s.camera[6]||weather!=s.camera[15]){
    advanceOceanSpectrum<<<dim3(32,32,4),dim3(8,8)>>>(camera.p,initial.p,spectrum.p);launchCheck();
    oceanFft<<<dim3(256,4),128>>>(spectrum.p,ping.p,0);launchCheck();
    oceanFft<<<dim3(256,4),128>>>(ping.p,spectrum.p,1);launchCheck();
-   packOcean<<<dim3(32,32,4),dim3(8,8)>>>(spectrum.p,waves.p);launchCheck();
+   packOcean<<<dim3(32,32,4),dim3(8,8)>>>(camera.p,spectrum.p,waves.p);launchCheck();
    for(int level=1;level<=8;level++){int g=((256>>level)+7)/8;oceanMip<<<dim3(g,g,4),dim3(8,8)>>>(waves.p,level);launchCheck();}
-   time=s.camera[5];wind=s.camera[6];oceanValid=true;
+   time=s.camera[5];wind=s.camera[6];weather=s.camera[15];oceanValid=true;
   }
  }
 };
@@ -59,6 +60,7 @@ Renderer::Renderer():impl(std::make_unique<Impl>()){}
 Renderer::~Renderer()=default;
 std::string Renderer::deviceName()const{return impl->name;}
 float Renderer::gpuMs()const{return impl->ms;}
+std::array<float,5> Renderer::stageMs()const{return impl->stageTimes;}
 void Renderer::resize(int w,int h){
  if(w<64||h<64||w>7680||h>4320)throw std::runtime_error("Render dimensions must be 64..7680 by 64..4320.");
  auto& r=*impl;if(r.width==w&&r.height==h)return;CUDA(cudaDeviceSynchronize());
@@ -71,16 +73,18 @@ const std::vector<std::uint32_t>& Renderer::render(const Scene& s){
  if(!r.patchValid||patch!=r.patch){cacheShrubs<<<dim3(8,8),dim3(8,8)>>>(r.camera.p,r.origin.p,r.shrubs.p);launchCheck();r.patch=patch;r.patchValid=true;}
  std::array<int,5> reefPatch{int(std::floor(s.camera[0]/12)),int(std::floor(s.camera[2]/12)),s.origin[0],s.origin[1],s.origin[2]};
  if(s.camera[1]<0&&s.camera[14]<.5f&&(!r.reefValid||reefPatch!=r.reefPatch)){cacheReef<<<dim3(128,128),dim3(8,8)>>>(r.camera.p,r.origin.p,r.shrubs.p);launchCheck();r.reefPatch=reefPatch;r.reefValid=true;}
+ CUDA(cudaEventRecord(r.stages[0].value));
  dim3 groups((r.width+7)/8,(r.height+7)/8),threads(8,8);
- tracePrimary<<<groups,threads>>>(r.camera.p,r.origin.p,r.waves.p,r.shrubs.p,r.hit.p,r.surface.p,r.width,r.height);launchCheck();
- traceVegetation<<<groups,threads>>>(r.camera.p,r.origin.p,r.shrubs.p,r.hit.p,r.surface.p,r.width,r.height);launchCheck();
- reflectOcean<<<groups,threads>>>(r.camera.p,r.origin.p,r.shrubs.p,r.hit.p,r.surface.p,r.reflection.p,r.width,r.height);launchCheck();
- shadeOcean<<<groups,threads>>>(r.camera.p,r.origin.p,r.shrubs.p,r.hit.p,r.surface.p,r.reflection.p,r.waves.p,r.pixels.p,r.width,r.height);launchCheck();
+ tracePrimary<<<groups,threads>>>(r.camera.p,r.origin.p,r.waves.p,r.shrubs.p,r.hit.p,r.surface.p,r.width,r.height);launchCheck();CUDA(cudaEventRecord(r.stages[1].value));
+ traceVegetation<<<groups,threads>>>(r.camera.p,r.origin.p,r.shrubs.p,r.hit.p,r.surface.p,r.width,r.height);launchCheck();CUDA(cudaEventRecord(r.stages[2].value));
+ reflectOcean<<<groups,threads>>>(r.camera.p,r.origin.p,r.shrubs.p,r.hit.p,r.surface.p,r.reflection.p,r.width,r.height);launchCheck();CUDA(cudaEventRecord(r.stages[3].value));
+ shadeOcean<<<groups,threads>>>(r.camera.p,r.origin.p,r.shrubs.p,r.hit.p,r.surface.p,r.reflection.p,r.waves.p,r.pixels.p,r.width,r.height);launchCheck();CUDA(cudaEventRecord(r.stages[4].value));
  CUDA(cudaEventRecord(r.end.value));CUDA(cudaMemcpy(r.host.data(),r.pixels.p,r.host.size()*4,cudaMemcpyDeviceToHost));
- CUDA(cudaEventElapsedTime(&r.ms,r.begin.value,r.end.value));return r.host;
+ CUDA(cudaEventElapsedTime(&r.ms,r.begin.value,r.end.value));
+ for(int i=0;i<5;i++)CUDA(cudaEventElapsedTime(&r.stageTimes[i],i?r.stages[i-1].value:r.begin.value,r.stages[i].value));return r.host;
 }
 void Renderer::selfTest(){
- auto& r=*impl;Scene s;s.origin[2]=42;s.camera[5]=3;s.camera[6]=1;
+ auto& r=*impl;Scene s;s.camera[15]=-1;s.origin[2]=42;s.camera[5]=3;s.camera[6]=1;
  Buffer<float> points,result;points.alloc(16);result.alloc(16);
  float p[16]={2400,2400,.2f,0,4799.9f,1000,.2f,0,2000,2000,.2f,0,2400,2400,128,0};
  auto probe=[&](){r.ocean(s);points.put(p);probeWorld<<<1,64>>>(points.p,r.origin.p,r.waves.p,result.p,4);launchCheck();return result.read();};

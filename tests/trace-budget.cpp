@@ -1,5 +1,6 @@
 #include "cuda_compat.hpp"
 #include "../kernels/common.cu"
+#include "../kernels/weather.cu"
 #include "../kernels/terrain.cu"
 #include "trace-reference.hpp"
 int main(){

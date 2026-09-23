@@ -16,8 +16,9 @@ std::vector<float> cpuOcean(float time=3,float wind=1,int seed=42){
  double sum=0;float maxH=0,maxImag=0;for(const auto&v:spatial){sum+=v.x*v.x;maxH=fmaxf(maxH,fabsf(v.x));maxImag=fmaxf(maxImag,fabsf(v.y));}
  std::cout<<"Spectral ocean: cascade RMS="<<sqrt(sum/spatial.size())<<", peak="<<maxH<<", imaginary residual="<<maxImag<<"\n";
  if(maxImag>.0001f||maxH<.1f||!std::isfinite(maxH))throw std::runtime_error("Invalid Fourier ocean");
- std::vector<float> waves(4*OCEAN_TEXELS*4);blockDim={1,1,1};
- for(int layer=0;layer<4;layer++){blockIdx={0,0,(unsigned)layer};for(int y=0;y<256;y++)for(int x=0;x<256;x++){threadIdx={(unsigned)x,(unsigned)y,0};packOcean(spatial.data(),waves.data());}}
+ float controls[16]={};controls[5]=time;controls[15]=-1;
+ std::vector<float> waves(4*OCEAN_TEXELS*4+4);blockDim={1,1,1};
+ for(int layer=0;layer<4;layer++){blockIdx={0,0,(unsigned)layer};for(int y=0;y<256;y++)for(int x=0;x<256;x++){threadIdx={(unsigned)x,(unsigned)y,0};packOcean(controls,spatial.data(),waves.data());}}
  for(int level=1;level<=8;level++){int n=256>>level;for(int layer=0;layer<4;layer++){blockIdx={0,0,(unsigned)layer};for(int y=0;y<n;y++)for(int x=0;x<n;x++){threadIdx={(unsigned)x,(unsigned)y,0};oceanMip(waves.data(),level);}}}
  return waves;
 }

@@ -27,11 +27,7 @@ __device__ float3 sunRadiance(float3 sun){
  float air=1/fmaxf(.055f,sun.y),day=smoothf(-.04f,.04f,sun.y);
  return make_float3(2.8f*expf(-.025f*air),2.9f*expf(-.055f*air),3.05f*expf(-.12f*air))*day;
 }
-__device__ float cloudField(float u,float v,float fp){
- float warp=noise2(u*.31f+18,v*.31f-4);
- return .5f+(noise2(u+warp*.85f,v-warp*.6f)-.5f)*.57f*weight(fp,1)+(noise2(u*2.17f+31,v*2.17f)-.5f)*.28f*weight(fp,2.17f)+(noise2(u*5.1f,v*5.1f+9)-.5f)*.15f*weight(fp,5.1f);
-}
-// Analytic atmosphere and bounded procedural cloud layer, not a volumetric solver.
+// Analytic clear atmosphere; moving clouds are added by weather.cu, not a volumetric solver.
 // The solar disk is EXCLUDED from the reflection environment: the GGX lobe accounts
 // for the sun exactly once, avoiding the old double sun painted into the water.
 __device__ float3 skyRadiance(float3 d,float3 sun,float includeDisk,float blur){
@@ -40,22 +36,12 @@ __device__ float3 skyRadiance(float3 d,float3 sun,float includeDisk,float blur){
  float3 zenith=mix3(make_float3(.040f,.145f,.33f),make_float3(.035f,.055f,.13f),warm*.65f);
  float3 c=mix3(horizon,zenith,powf(h,.40f));
  c=c+sunRadiance(sun)*(powf(mu,12)*(.027f+warm*.07f)+powf(mu,96)*.035f)*(1-h*.7f);
- float cloudAlpha=0;
- if(d.y>.025f){
-  float u=d.x/(d.y+.19f)*2.8f+7,v=d.z/(d.y+.19f)*2.8f-4;
-  float cfp=blur*2.8f/(d.y+.19f);float density=cloudField(u,v,cfp),macro=noise2(u*.28f+3,v*.28f);
-  cloudAlpha=lerpf(.11f,smoothf(.59f,.80f,density+macro*.085f),weight(cfp,1))*smoothf(.025f,.16f,d.y);
-  if(cloudAlpha>.001f){
-   float towards=cloudField(u+sun.x*.22f,v+sun.z*.22f,cfp);
-   float edge=sat(.56f+(density-towards)*3.8f),thickness=smoothf(.58f,.82f,density);
-   float3 ambient=mix3(make_float3(.24f,.32f,.40f),make_float3(.18f,.20f,.29f),warm);
-   float3 lit=ambient+sunRadiance(sun)*(.21f+edge*.11f);
-   lit=lit*(1-thickness*.16f)+sunRadiance(sun)*(powf(mu,18)*.12f*(1-thickness));
-   c=mix3(c,lit,cloudAlpha*.88f);
-  }
- }
+ float daylight=smoothf(-.18f,.06f,sun.y);
+ float3 night=mix3(make_float3(.003f,.005f,.012f),make_float3(.0005f,.001f,.004f),h);
+ c=mix3(night,c,daylight);
  float disk=smoothf(.999980f,.999991f,dot3(d,sun))*includeDisk;
- return c+sunRadiance(sun)*(disk*14*(1-cloudAlpha*.94f));
+ return c+sunRadiance(sun)*(disk*14);
+
 }
 __device__ float3 sky(float3 d,float3 sun){return skyRadiance(d,sun,1,0);}
 __device__ float3 skyEnvironment(float3 d,float3 sun){return skyRadiance(d,sun,0,0);}
@@ -86,7 +72,7 @@ __device__ float3 aerialPerspective(float3 color,float3 ro,float3 rd,float dista
  float3 horizon=norm3(make_float3(rd.x,.012f,rd.z));
  float3 haze=skyEnvironment(horizon,sun);
  float forward=powf(sat(dot3(rd,sun)),8)*(1-smoothf(.15f,.8f,sun.y));
- haze=mix3(haze,make_float3(.95f,.70f,.43f),forward*.22f);
+ haze=mix3(haze,make_float3(.95f,.70f,.43f),forward*.22f*smoothf(-.12f,.04f,sun.y));
  float3 result=mix3(haze,color,transmission);
  // Match sky rays continuously as geometry reaches the finite query limit.
  if(distance>FAR*.8f)result=mix3(result,sky(rd,sun),smoothf(FAR*.8f,FAR,distance));
@@ -101,4 +87,12 @@ __device__ float3 cameraRay(const float* C,int x,int y,int width,int height){
  float sx=((float)x+0.5f-(float)width*0.5f)/(float)height*1.05f,sy=-((float)y+0.5f-(float)height*0.5f)/(float)height*1.05f;
  return norm3(f+r*sx+u*sy);
 }
-__device__ float3 sunDirection(const float* C){return norm3(make_float3(cosf(C[7]),C[8],sinf(C[7])));}
+// C[8] >= 10 encodes a starting solar hour; C[5] is the shared simulation
+// clock. One world day lasts 24 real minutes. Smaller C[8] is manual elevation.
+__device__ float worldHour(const float* C){return fractf((C[8]-10+C[5]/60)/24)*24;}
+__device__ float3 sunDirection(const float* C){
+ if(C[8]<10)return norm3(make_float3(cosf(C[7]),C[8],sinf(C[7])));
+ float angle=(worldHour(C)-6)*PI/12;
+ float x=cosf(angle),z=sinf(angle)*.48f;
+ return norm3(make_float3(x*cosf(C[7])-z*sinf(C[7]),sinf(angle)*.88f,x*sinf(C[7])+z*cosf(C[7])));
+}

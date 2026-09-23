@@ -54,21 +54,21 @@ __global__ void generateShrubAtlas(float* Shrubs){
  float u=((float)x+.5f)/128,v=((float)y+.5f)/128,alpha=0;float3 color=make_float3(0,0,0);
  int variant=tile%4;
  // The same seeded 3D leaf positions are projected into side/overhead textures.
- int leaves=180+variant*19;
+ int leaves=320+variant*23;
  for(int k=0;k<leaves;k++){
   float angle=hash2(k,variant,712)*2*PI,r=sqrtf(hash2(k,variant,713))*.37f;
   float lx=.5f+cosf(angle)*r,lz=.5f+sinf(angle)*r;
-  float ly=.19f+hash2(k,variant,714)*.61f*(1-r*.8f);
+  float ly=.08f+hash2(k,variant,714)*.53f*(1-r*.8f);
   float cx=lx,cy=tile<4?ly:lz;
   float a=hash2(k,variant,715)*PI,dx=u-cx,dy=v-cy;
-  float xx=(dx*cosf(a)+dy*sinf(a))/.038f,yy=(-dx*sinf(a)+dy*cosf(a))/.015f;
+  float xx=(dx*cosf(a)+dy*sinf(a))/.042f,yy=(-dx*sinf(a)+dy*cosf(a))/.021f;
   float mask=1-smoothf(.75f,1.2f,xx*xx+yy*yy);
-  float shade=.6f+hash2(k,variant,716)*.7f;
-  float3 leaf=mix3(make_float3(.040f,.085f,.020f),make_float3(.18f,.24f,.067f),hash2(k,variant,717))*shade;
+  float shade=.70f+hash2(k,variant,716)*.40f;
+  float3 leaf=mix3(make_float3(.035f,.060f,.025f),make_float3(.115f,.145f,.062f),hash2(k,variant,717))*shade;
   leaf=leaf*(1-.18f*expf(-yy*yy*80));
   color=color*(1-mask)+leaf*mask;alpha=alpha+(1-alpha)*mask;
  }
- if(tile<4){float stem=(1-smoothf(.008f,.016f,fabsf(u-.5f)))*(1-smoothf(.20f,.35f,v));
+ if(tile<4){float stem=(1-smoothf(.008f,.016f,fabsf(u-.5f)))*(1-smoothf(.08f,.18f,v));
   color=color+make_float3(.13f,.085f,.04f)*(stem*(1-alpha));alpha=alpha+stem*(1-alpha);}
  int b=shrubTexel(tile,0,x,y);Shrubs[b]=color.x;Shrubs[b+1]=color.y;Shrubs[b+2]=color.z;Shrubs[b+3]=alpha;
 }
@@ -151,19 +151,29 @@ __device__ float3 shrubColor(float3 p,float3 uv,float3 rd,float3 sun,const int* 
 __device__ float3 shrubGround(float3 color,float3 p,float3 n,float3 sun,const int* Origin,const float* Shrubs,float fp,float distance){
  float blend=shrubGroundBlend(distance);if(blend<=0||p.y<4.5f||p.y>155||n.y<.86f)return color;
  int ix=(int)floorf(p.x/6),iz=(int)floorf(p.z/6);
- Shrub s=describeShrub(ix,iz,Origin);
+ // Reuse the habitat cache near the camera. Fully unresolved foliage needs
+ // only average coverage, not five terrain height evaluations per pixel.
+ float filtered=smoothf(1.5f,6,fp);
+ Shrub s;s.size=0;s.seed=0;s.root=make_float3(0,0,0);
+ if(filtered<1){
+  int cx=ix-(int)Shrubs[0],cz=iz-(int)Shrubs[1];
+  if(cx>=0&&cz>=0&&cx<64&&cz<64)s=cachedShrub(ix,iz,Origin,Shrubs);
+  else s=describeShrub(ix,iz,Origin);
+ }
  float4 tex=make_float4(0,0,0,0);
  if(s.size>0){float a=s.seed*PI,dx=p.x-s.root.x,dz=p.z-s.root.z;
   float u=(dx*cosf(a)+dz*sinf(a))/(s.size*2.2f)+.5f,v=(-dx*sinf(a)+dz*cosf(a))/(s.size*2.2f)+.5f;
   if(u>=0&&u<=1&&v>=0&&v<=1)tex=shrubTexture(u,v,4+(int)(s.seed*4),fp/(s.size*2.2f),Shrubs);
  }
- float filtered=smoothf(1.5f,6,fp);
  // Fully unresolved cells converge to habitat-weighted average crown coverage.
+ float density=0;
+ if(filtered>0){
  Island island=describeIsland((int)floorf(p.x/CELL),(int)floorf(p.z/CELL),Origin);
  float patch=noise2((p.x-island.x)/38+island.seed,(p.z-island.z)/38);
- float density=smoothf(.35f,.45f,patch)*(.28f+.30f*smoothf(5,18,p.y))*.065f;
- float alpha=lerpf(tex.w,density,filtered)*blend;
- float3 albedo=mix3(make_float3(tex.x,tex.y,tex.z)/fmaxf(.001f,tex.w),make_float3(.085f,.14f,.035f),filtered);
+ density=smoothf(.35f,.45f,patch)*(.28f+.30f*smoothf(5,18,p.y))*.065f;
+ }
+ float alpha=lerpf(tex.w,density,filtered)*blend;if(alpha<=0)return color;
+ float3 albedo=mix3(make_float3(tex.x,tex.y,tex.z)/fmaxf(.001f,tex.w),make_float3(.072f,.103f,.043f),filtered);
  float3 lighting=make_float3(.20f,.25f,.28f)+sunRadiance(sun)*(.20f+.13f*sat(sun.y));
  return mix3(color,albedo*lighting,alpha);
 }
