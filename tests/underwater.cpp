@@ -2,6 +2,7 @@
 #include "../kernels/common.cu"
 #include "../kernels/weather.cu"
 #include "../kernels/terrain.cu"
+#include "../kernels/terrain-cache.cu"
 #include "../kernels/shrubs.cu"
 #include "../kernels/ocean.cu"
 #include "../kernels/render.cu"

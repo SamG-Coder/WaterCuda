@@ -194,7 +194,7 @@ __global__ void tracePrimary(const float* C,const int* Origin,const float* Waves
   if(material==5){float3 q=ro+rd*t;float4 w=ocean(q.x,q.z,fp,Waves,Origin);n=norm3(make_float3(-w.y,1,-w.z));}
   Hit[b]=t;Hit[b+1]=material;Hit[b+2]=fp;Hit[b+3]=0;Surface[b]=n.x;Surface[b+1]=n.y;Surface[b+2]=n.z;Surface[b+3]=0;return;
  }
- float wt=waterHit(ro,rd,cone,C[6],Waves,Origin),lt=traceLand(ro,rd,Origin,wt>0?wt+3:FAR,cone);
+ float wt=waterHit(ro,rd,cone,C[6],Waves,Origin),lt=traceLandCached(ro,rd,Origin,wt>0?wt+3:FAR,cone,Shrubs);
  float t=FAR,material=0,fp=0,variance=0,depth=0;float3 n=make_float3(0,1,0);
  if(lt>0&&(wt<0||lt<wt)){t=lt;material=1;fp=fmaxf(.2f,t*cone);n=groundNormal(ro+rd*t,Origin,fp);fp=fmaxf(.005f,t*cone/fmaxf(.2f,fabsf(dot3(n,rd))));}
  else if(wt>0){t=wt;material=2;fp=fmaxf(.12f,t*cone/fmaxf(.08f,-rd.y));float3 p=ro+rd*t;float4 w=ocean(p.x,p.z,fp,Waves,Origin);n=norm3(make_float3(-w.y,1,-w.z));variance=w.w;depth=fmaxf(0,p.y-ground(p.x,p.z,Origin,fp));}
@@ -223,7 +223,7 @@ __global__ void reflectOcean(const float* C,const int* Origin,const float* Shrub
  if(Hit[b+1]!=2||C[9]<.5f||Hit[b]>6500)return;
  float3 n=make_float3(Surface[b],Surface[b+1],Surface[b+2]),rd=cameraRay(C,px,py,width,height),sun=sunDirection(C);
  float3 rr=rd-n*(2*dot3(rd,n)),ro=make_float3(C[0],C[1],C[2])+rd*Hit[b]+n*.3f;
- float3 reflected=weatherSky(ro,rr,sun,C[5],C[15],Origin,0);float cone=1.05f/(float)height,rt=traceLand(ro,rr,Origin,6500,cone);
+ float3 reflected=weatherSky(ro,rr,sun,C[5],C[15],Origin,0);float cone=1.05f/(float)height,rt=traceLandCached(ro,rr,Origin,6500,cone,Shrubs);
  if(rt>0){float3 p=ro+rr*rt;float fp=fmaxf(.5f,(Hit[b]+rt)*cone);float3 ln=groundNormal(p,Origin,fp);float shadow=terrainShadow(p+ln*.4f,sun,Origin,fp);float3 land=shrubGround(landColor(p,ln,sun,Origin,fp),p,ln,sun,Origin,Shrubs,fp,Hit[b]+rt)*shadow;
  land=wetSandSheen(land,p,ln,rr,sun,Origin,fp,shadow);land=aerialPerspective(land,ro,rr,rt,sun);reflected=mix3(land,reflected,smoothf(4800,6500,Hit[b]));}
  if(Hit[b]<180){float4 shrub=traceShrubs(ro,rr,Origin,Shrubs,rt>0?rt:6500,C[5],C[6],cone);

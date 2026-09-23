@@ -3,6 +3,7 @@
 #include "../kernels/common.cu"
 #include "../kernels/weather.cu"
 #include "../kernels/terrain.cu"
+#include "../kernels/terrain-cache.cu"
 #include "../kernels/shrubs.cu"
 #include "shrub-atlas.hpp"
 #include "../kernels/ocean.cu"

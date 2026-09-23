@@ -65,7 +65,7 @@ npm test
 npm run test:native
 ```
 
-`npm test` translates all fifteen CUDA entry points and runs nineteen Node tests for free flight, focus handling, diagonal speed, frame-rate independence, world rebasing, seed validation and render alignment, cached wave scheduling, sea looks, shader contracts and the browser fixture server. `test:native` needs a C++17 compiler (`g++`, or set `CXX`), checks terrain against dense traversal and computes an independent double-precision CPU inverse FFT. It regenerates `tests/ocean-reference.json`, used by browser GPU checks.
+`npm test` translates all seventeen CUDA entry points and runs twenty Node tests for free flight, focus handling, diagonal speed, frame-rate independence, world rebasing, seed validation and render alignment, cached wave scheduling, sea looks, shader contracts and the browser fixture server. `test:native` needs a C++17 compiler (`g++`, or set `CXX`), checks terrain against dense traversal and computes an independent double-precision CPU inverse FFT. It regenerates `tests/ocean-reference.json`, used by browser GPU checks.
 
 Open `http://localhost:8090/?test=1` to execute ten GPU checks in the actual browser. They check cached/eager wave equivalence, determinism, terrain and wave rebasing, distant integer coordinates, seed variation, unresolved wave energy, agreement with the independent CPU FFT and WebGPU validation errors.
 
@@ -100,3 +100,5 @@ Seeded regional weather drives moving clouds, rain, lightning, local wave streng
 See [weather implementation and controls](docs/weather.md) for the regional model, performance measurements and approximation limits.
 
 The sky now follows a shared day/night clock: moving sunlight, sunset colours, stars and moonlight, with weather-controlled clouds. Use **World time** to inspect an hour, or open `?seed=884&view=coast&hour=18` for sunset. A full day lasts 24 real minutes; **Pause world** freezes the cycle.
+
+Shoreline traversal now uses GPU-generated conservative terrain bounds and a min/max hierarchy to skip empty space. Terrain detail and final procedural intersections remain intact. See [performance measurements and validation](docs/island-performance.md).

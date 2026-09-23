@@ -5,12 +5,14 @@ export class Engine{
   this.errors=[];this.runtime=await GpuRuntime.create({onError:e=>{this.errors.push(String(e.message||e));this.onError?.(e);}});
   this.device=this.runtime.device;this.canvas=canvas;this.context=canvas.getContext('webgpu');
   this.loader=new KernelLoader(this.runtime,event=>{if(event.type==='done')console.info('[WaterCuda pipeline]',event.entry,event.timing);progress(event.entry+' · '+event.message);});
-  this.kernels={};await Promise.all(['generateShrubAtlas','mipShrubAtlas','cacheShrubs','cacheReef','cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','tracePrimary','traceVegetation','reflectOcean','shadeOcean'].map(async name=>{this.kernels[name]=await this.loader.load(name);}));
+  this.kernels={};await Promise.all(['cacheTerrain','mipTerrain','generateShrubAtlas','mipShrubAtlas','cacheShrubs','cacheReef','cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','tracePrimary','traceVegetation','reflectOcean','shadeOcean'].map(async name=>{this.kernels[name]=await this.loader.load(name);}));
   this.camera=this.runtime.createBuffer(64,{label:'Camera and ocean controls'});
   this.origin=this.runtime.createBuffer(16,{label:'Integer world origin and seed'});
-  this.shrubs=this.runtime.createBuffer(5114536*4,{label:'Shrub habitat and generated foliage atlas'});
+  this.shrubs=this.runtime.createBuffer(11405990*4,{label:'Foliage, reef and terrain bounds caches'});
   this.cacheShrubCall=this.kernels.cacheShrubs.bind({C:this.camera,Origin:this.origin,Shrubs:this.shrubs});this.lastShrubState=null;
   this.cacheReefCall=this.kernels.cacheReef.bind({C:this.camera,Origin:this.origin,Shrubs:this.shrubs});this.lastReefState=null;
+  this.cacheTerrainCall=this.kernels.cacheTerrain.bind({Origin:this.origin,Terrain:this.shrubs});
+  this.terrainMips=Array.from({length:9},(_,i)=>{const level=i+1;return [this.kernels.mipTerrain.bind({Terrain:this.shrubs},{level}),[Math.ceil((512>>level)/8),Math.ceil((512>>level)/8),9]];});this.lastTerrainState=null;
   this.runtime.batch().dispatch(this.kernels.generateShrubAtlas.bind({Shrubs:this.shrubs}),[16,16,8]).submit();
   for(let level=1;level<8;level++)this.runtime.batch().dispatch(this.kernels.mipShrubAtlas.bind({Shrubs:this.shrubs},{level}),[Math.ceil((128>>level)/8),Math.ceil((128>>level)/8),8]).submit();
   this.waves=this.runtime.createBuffer((87381*4*4+4)*4,{label:'Four spectral cascades with mipmaps'});
@@ -44,6 +46,8 @@ export class Engine{
  frame(camera,origin){
   if(this.pending>=2)return false;
   const start=performance.now();this.runtime.write(this.camera,camera);this.runtime.write(this.origin,origin);
+  const terrainState=[origin[0],origin[1],origin[2]];
+  if(!this.lastTerrainState||terrainState.some((v,i)=>v!==this.lastTerrainState[i])){const batch=this.runtime.batch();batch.dispatch(this.cacheTerrainCall,[64,64,9]);for(const [call,groups]of this.terrainMips)batch.dispatch(call,groups);batch.submit();this.lastTerrainState=terrainState;}
   const shrubState=[Math.floor(camera[0]/6),Math.floor(camera[2]/6),origin[0],origin[1],origin[2]];
   if(!this.lastShrubState||shrubState.some((v,i)=>v!==this.lastShrubState[i])){this.runtime.batch().dispatch(this.cacheShrubCall,[8,8]).submit();this.lastShrubState=shrubState;}
   const reefState=[Math.floor(camera[0]/12),Math.floor(camera[2]/12),origin[0],origin[1],origin[2]];

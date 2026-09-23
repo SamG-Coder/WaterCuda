@@ -16,14 +16,14 @@ function fakeEngine(){
  const e=new Engine(),dispatches=[];
  const encoder={copyBufferToTexture(){}};
  e.runtime={write(){},idle:()=>Promise.resolve(),batch:()=>({encoder,dispatch(call){dispatches.push(call);return this;},endPass(){return this;},submit(){return this;}})};
- Object.assign(e,{context:{getCurrentTexture:()=>({})},pixels:{gpuBuffer:{}},pending:0,frames:0,width:64,height:32,cacheReefCall:'reef',lastReefState:null,cacheShrubCall:'shrubs',lastShrubState:null,cacheSpectrumCall:'cache',oceanCalls:[['advance',[]],['fft',[]]],calls:{tracePrimary:'trace',traceVegetation:'foliage',reflectOcean:'reflect',shadeOcean:'shade'},lastSpectrumSeed:null,lastOceanState:null,spectrumBuilds:0,oceanUpdates:0});
+ Object.assign(e,{context:{getCurrentTexture:()=>({})},pixels:{gpuBuffer:{}},pending:0,frames:0,cacheTerrainCall:"terrain",terrainMips:[["terrainMip",[]]],lastTerrainState:null,width:64,height:32,cacheReefCall:'reef',lastReefState:null,cacheShrubCall:'shrubs',lastShrubState:null,cacheSpectrumCall:'cache',oceanCalls:[['advance',[]],['fft',[]]],calls:{tracePrimary:'trace',traceVegetation:'foliage',reflectOcean:'reflect',shadeOcean:'shade'},lastSpectrumSeed:null,lastOceanState:null,spectrumBuilds:0,oceanUpdates:0});
  return {e,dispatches};
 }
 test('seed coefficients cache once; camera motion and rebasing never reseed the ocean',async()=>{
  const {e,dispatches}=fakeEngine(),c=new Float32Array(16),o=new Int32Array([0,0,42,0]);c[5]=3;c[6]=1;
- e.frame(c,o);await e.runtime.idle();assert.deepEqual(dispatches,['shrubs','cache','advance','fft','trace','foliage','reflect','shade']);
+ e.frame(c,o);await e.runtime.idle();assert.deepEqual(dispatches,['terrain','terrainMip','shrubs','cache','advance','fft','trace','foliage','reflect','shade']);
  dispatches.length=0;c[0]+=50;o[0]=100000000;o[1]=-100000000;e.frame(c,o);await e.runtime.idle();
- assert.deepEqual(dispatches,['shrubs','trace','foliage','reflect','shade']);assert.equal(e.spectrumBuilds,1);assert.equal(e.oceanUpdates,1);
+ assert.deepEqual(dispatches,['terrain','terrainMip','shrubs','trace','foliage','reflect','shade']);assert.equal(e.spectrumBuilds,1);assert.equal(e.oceanUpdates,1);
  c[5]=4;e.frame(c,o);await e.runtime.idle();assert.equal(e.spectrumBuilds,1);assert.equal(e.oceanUpdates,2);
  c[6]=2;e.frame(c,o);await e.runtime.idle();assert.equal(e.spectrumBuilds,1);assert.equal(e.oceanUpdates,3);
  o[2]=884;e.frame(c,o);await e.runtime.idle();assert.equal(e.spectrumBuilds,2);assert.equal(e.oceanUpdates,4);
@@ -65,4 +65,13 @@ test('changing weather while paused updates wave metadata without rebuilding see
  const {e,dispatches}=fakeEngine(),c=new Float32Array(16),o=new Int32Array([0,0,884,0]);
  e.frame(c,o);await e.runtime.idle();dispatches.length=0;c[15]=4;e.frame(c,o);await e.runtime.idle();
  assert.ok(dispatches.includes('advance'));assert.ok(!dispatches.includes('cache'));assert.equal(e.spectrumBuilds,1);
+});
+
+test('terrain bounds only rebuild for a new origin or seed, not camera, weather or time',async()=>{
+ const {e,dispatches}=fakeEngine(),c=new Float32Array(16),o=new Int32Array([0,0,884,0]);
+ const frame=async()=>{e.frame(c,o);await e.runtime.idle();};
+ await frame();c[0]=100;c[5]=20;c[15]=4;await frame();
+ assert.equal(dispatches.filter(x=>x==='terrain').length,1);
+ o[0]=1;await frame();o[2]=42;await frame();
+ assert.equal(dispatches.filter(x=>x==='terrain').length,3);
 });

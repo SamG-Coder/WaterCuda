@@ -11,6 +11,7 @@
 #include "../../kernels/common.cu"
 #include "../../kernels/weather.cu"
 #include "../../kernels/terrain.cu"
+#include "../../kernels/terrain-cache.cu"
 #include "../../kernels/shrubs.cu"
 #include "../../kernels/ocean.cu"
 #include "../../kernels/render.cu"
@@ -31,6 +32,7 @@ struct Renderer::Impl {
  Buffer<float> camera,waves,shrubs,hit,surface,reflection;
  Buffer<int> origin;Buffer<float4> initial;Buffer<float2> spectrum,ping;Buffer<unsigned int> pixels;
  Event begin,end,stages[5];std::array<float,5> stageTimes{};std::vector<std::uint32_t> host;int width=0,height=0,seed=-1;
+ std::array<int,3> terrainState{};bool terrainValid=false;
  std::array<int,5> reefPatch{};bool reefValid=false;
  std::array<int,5> patch{};bool patchValid=false,oceanValid=false;float time=0,wind=0,weather=0,ms=0;
  std::string name;
@@ -69,6 +71,12 @@ void Renderer::resize(int w,int h){
 const std::vector<std::uint32_t>& Renderer::render(const Scene& s){
  auto& r=*impl;if(!r.width)throw std::runtime_error("Call resize before render.");
  CUDA(cudaEventRecord(r.begin.value));r.ocean(s);
+ std::array<int,3> terrainState{s.origin[0],s.origin[1],s.origin[2]};
+ if(!r.terrainValid||r.terrainState!=terrainState){
+  cacheTerrain<<<dim3(64,64,9),dim3(8,8)>>>(r.origin.p,r.shrubs.p);launchCheck();
+  for(int level=1;level<=9;level++){int g=((512>>level)+7)/8;mipTerrain<<<dim3(g,g,9),dim3(8,8)>>>(r.shrubs.p,level);launchCheck();}
+  r.terrainState=terrainState;r.terrainValid=true;
+ }
  std::array<int,5> patch{int(std::floor(s.camera[0]/6)),int(std::floor(s.camera[2]/6)),s.origin[0],s.origin[1],s.origin[2]};
  if(!r.patchValid||patch!=r.patch){cacheShrubs<<<dim3(8,8),dim3(8,8)>>>(r.camera.p,r.origin.p,r.shrubs.p);launchCheck();r.patch=patch;r.patchValid=true;}
  std::array<int,5> reefPatch{int(std::floor(s.camera[0]/12)),int(std::floor(s.camera[2]/12)),s.origin[0],s.origin[1],s.origin[2]};

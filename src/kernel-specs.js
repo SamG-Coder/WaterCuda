@@ -1,5 +1,7 @@
-export const UNITS=['common','weather','terrain','shrubs','ocean','render'];
+export const UNITS=['common','weather','terrain','terrain-cache','shrubs','ocean','render'];
 export const SPECS=[
+ {entry:'cacheTerrain',file:'terrain-cache',workgroupSize:[8,8,1],dependencies:['common','terrain','terrain-cache']},
+ {entry:'mipTerrain',file:'terrain-cache',workgroupSize:[8,8,1],dependencies:['common','terrain','terrain-cache']},
  {entry:'generateShrubAtlas',file:'shrubs',workgroupSize:[8,8,1],dependencies:['common','weather','terrain','shrubs']},
  {entry:'mipShrubAtlas',file:'shrubs',workgroupSize:[8,8,1],dependencies:['common','weather','terrain','shrubs']},
  {entry:'cacheShrubs',file:'shrubs',workgroupSize:[8,8,1],dependencies:['common','weather','terrain','shrubs']},
