@@ -4,8 +4,9 @@ let program,world;
 self.onmessage=async({data})=>{
  try{
   if(data.type==='init'){
-   if(!crossOriginIsolated)throw Error('Shared WASM threads require COOP/COEP. Run this experiment\'s server.mjs on port 8091.');
-   const [wasmBinary,abi]=await Promise.all([fetch('./generated/world.wasm').then(r=>r.arrayBuffer()),fetch('./generated/world.abi.json').then(r=>r.json())]);
+   if(!crossOriginIsolated)throw Error('Shared WASM threads require cross-origin isolation.');
+   const load=async(name,json)=>{const response=await fetch(new URL('./generated/'+name,import.meta.url));if(!response.ok)throw Error('WASM asset failed: '+response.status);return json?response.json():response.arrayBuffer();};
+   const [wasmBinary,abi]=await Promise.all([load('world.wasm'),load('world.abi.json',true)]);
    program=new ThreadedProgram(await create({wasmBinary}),abi,data.threads);
    world=new WasmWorld(program,data.width,data.height,s=>postMessage({type:'progress',message:s}));postMessage({type:'ready',threads:program.threads});return;
   }

@@ -2,11 +2,13 @@ import {Engine} from './engine.js';
 import {applySeaLook} from './sea-looks.js';
 import {rebase,parseSeed,renderSize} from './world.js';
 import {FlightInput,moveCamera} from './flight.js';
+import {WasmStartup} from './wasm-startup.js';
 const $=id=>document.getElementById(id),canvas=$('view');
 const camera=new Float32Array([340,160,100,-0.05,-0.10,0,1,-0.7,0.7,1,0,1,1.5,1,0,0]);
 const origin=new Int32Array([0,0,42,0]);
 let engine,paused=false,drifting=false,speed=60,resizing=true,running=false,last=performance.now(),frames=0,lastStats=last,autoWidth=960,lastAdapt=0;
 let toastTimer;
+let startup,previewCanvas,gpuActive=false,startupFirst=false;
 function toast(message){$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),3500);}
 function preset(name){
  const views={coast:[1250,210,650,0.52,-0.10],aerial:[-300,1400,-300,0.70,-0.34],water:[1550,7,1100,0.52,0.025],shore:[1850,25,1250,0.15,-0.30],scrub:[2810.9,11.51,1131.74,0,-.20],bars:[3370,42,2770,-1.4,-.23],reef:[4377,-7,2784,0,-.12],coral:[4377,-7.3,2810.8,0,-.18],family:[4377,-6.5,2805,0,-.23]};
@@ -43,7 +45,7 @@ const input=new FlightInput(canvas,camera,{
  onLock:locked=>{$('fly').textContent=locked?'Flying · Esc to release':'Free camera · F';document.body.classList.toggle('exploring',locked);$('flightStatus').textContent=locked?'MOUSE LOOK · ESC TO RELEASE':'DRAG TO LOOK · F FOR MOUSE LOOK';}
 });
 $('fly').onclick=()=>{if(!input.capture())toast('Mouse capture unavailable here. Drag on the scene to look.');};
-$('capture').onclick=async()=>{if(!engine)return;try{const blob=await engine.capture();const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='WaterCuda-'+origin[2]+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);toast('Image saved');}catch(e){toast(e.message);}};
+$('capture').onclick=async()=>{if(!gpuActive&&!startupFirst)return;try{const blob=gpuActive?await engine.capture():await new Promise(resolve=>previewCanvas.toBlob(resolve));const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='WaterCuda-'+origin[2]+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);toast('Image saved');}catch(e){toast(e.message);}};
 $('validate').onclick=async()=>{if(!engine)return;$('validate').disabled=true;$('checks').textContent='Running actual GPU fixtures…';try{const result=await engine.validate();$('checks').textContent=result.checks.map(([name,ok])=>(ok?'PASS':'FAIL')+'  '+name).join('\n');document.body.dataset.gpuTests=result.checks.every(([,ok])=>ok)?'passed':'failed';window.gpuValidation=result;}catch(e){$('checks').textContent=e.stack;document.body.dataset.gpuTests='failed';}finally{$('validate').disabled=false;}};
 function advance(dt){
  moveCamera(camera,origin,input.keys,dt,speed,drifting);if(input.keys.size||input.drag)document.body.classList.add('exploring');if(!paused)camera[5]+=dt;
@@ -54,6 +56,13 @@ async function loop(now){
   const dt=Math.min(.1,(now-last)/1000);last=now;
   if(document.hidden){requestAnimationFrame(loop);return;}
   advance(dt);
+  if(!gpuActive){
+   startup?.frame(camera,origin);
+   $('position').textContent='CELL '+origin[0].toLocaleString()+' / '+origin[1].toLocaleString();$('altitude').textContent='ALTITUDE '+Math.round(camera[1])+' M · SEED '+origin[2];
+   if(camera[8]>=10){const hour=((camera[8]-10+camera[5]/60)%24+24)%24;$('hour').value=hour;$('hourValue').value=String(Math.floor(hour)).padStart(2,'0')+':'+String(Math.floor(hour%1*60)).padStart(2,'0');}
+   $('flightStatus').dataset.position=[origin[0],origin[1],...Array.from(camera.slice(0,5))].join(',');
+   requestAnimationFrame(loop);return;
+  }
   if($('quality').value==='auto'&&now-lastAdapt>2000&&engine.gpuMs){lastAdapt=now;const ms=engine.gpuMs;let next=autoWidth;if(ms>18)next=Math.max(512,Math.floor(autoWidth*Math.max(.8,Math.sqrt(15/ms))/64)*64);else if(ms<11)next=Math.min(1280,autoWidth+64);if(next!==autoWidth){autoWidth=next;resizing=true;}}
   if(resizing){resizing=false;const target=$('quality').value==='auto'?autoWidth:Number($('quality').value),{width,height}=renderSize(innerWidth,innerHeight,target);await engine.resize(width,height);$('resolution').textContent=width+' × '+height+' / WEBGPU';}
   if(engine.frame(camera,origin))frames++;
@@ -67,8 +76,34 @@ async function loop(now){
 }
 try{
  const url=new URL(location.href);if(url.searchParams.has('seed')){origin[2]=parseSeed(url.searchParams.get('seed'));$('seed').value=origin[2];}
- engine=await new Engine().init(canvas,message=>$('status').textContent=message);engine.onError=e=>{running=false;$('loading').classList.remove('done');$('status').textContent=String(e.message||e);};
  const weatherModes={auto:0,clear:1,overcast:2,rain:3,storm:4};camera[15]=weatherModes[url.searchParams.get('weather')]??0;$('weather').value=String(camera[15]);
- window.waterCuda={engine,camera,origin,preset,setLook,setRenderLoop(on){if(on&&!running){running=true;last=performance.now();requestAnimationFrame(loop);}else if(!on)running=false;}};setLook(['coastal','golden','swell'].includes(url.searchParams.get('look'))?url.searchParams.get('look'):'coastal');if(url.searchParams.get('clock')!=='manual'){const hour=Number(url.searchParams.get('hour')??12);selectHour(Number.isFinite(hour)?hour:12);}else $('daycycle').checked=false;preset(['coast','aerial','water','shore','scrub','bars','reef','coral','family'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'coast');running=true;last=performance.now();await loop(last);await engine.runtime.idle();if(!running)throw Error('Renderer failed to produce its first frame.');$('loading').classList.add('done');document.body.dataset.ready='true';
+ window.waterCuda={get engine(){return engine;},camera,origin,preset,setLook,setRenderLoop(on){if(on&&!running){running=true;last=performance.now();requestAnimationFrame(loop);}else if(!on)running=false;}};
+ setLook(['coastal','golden','swell'].includes(url.searchParams.get('look'))?url.searchParams.get('look'):'coastal');
+ if(url.searchParams.get('clock')!=='manual'){const hour=Number(url.searchParams.get('hour')??12);selectHour(Number.isFinite(hour)?hour:12);}else $('daycycle').checked=false;
+ preset(['coast','aerial','water','shore','scrub','bars','reef','coral','family'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'coast');
+ if(crossOriginIsolated && typeof SharedArrayBuffer!=='undefined' && url.searchParams.get('startup')!=='gpu'){
+  previewCanvas=document.createElement('canvas');previewCanvas.id='startup-preview';previewCanvas.setAttribute('aria-hidden','true');canvas.after(previewCanvas);
+  startup=new WasmStartup(previewCanvas,{
+   onFrame:data=>{
+    if(!startupFirst){startupFirst=true;document.body.dataset.backend='wasm';document.body.dataset.previewReady='true';$('loading').classList.add('done');}
+    $('fps').textContent=Math.round(1000/data.ms)+' FPS';$('resolution').textContent=data.width+' × '+data.height+' / CPU · preparing GPU';
+   },
+   onError:message=>{console.warn('WASM startup:',message);toast('CPU preview unavailable · preparing GPU');}
+  });
+ }
+ running=true;last=performance.now();requestAnimationFrame(loop);
+ // Give the CPU a chance to show the scene first, without making GPU startup
+ // depend on a successful WASM download or a responsive worker.
+ if(startup)await Promise.race([startup.first,new Promise(resolve=>setTimeout(resolve,2500))]);
+ engine=await new Engine().init(canvas,message=>{$('status').textContent=message;$('timings').textContent='Preparing GPU: '+message;});
+ const size=renderSize(innerWidth,innerHeight,$('quality').value==='auto'?autoWidth:Number($('quality').value));
+ await engine.resize(size.width,size.height);engine.frame(camera,origin);await engine.runtime.idle();
+ if(engine.errors.length)throw Error(engine.errors.join('\n'));
+ gpuActive=true;startup?.stop();previewCanvas?.remove();document.body.dataset.backend='webgpu';document.body.dataset.ready='true';$('loading').classList.add('done');
+ engine.onError=e=>{running=false;$('loading').classList.remove('done');$('status').textContent=String(e.message||e);};
  if(url.searchParams.has('test')){document.querySelector('details').open=true;$('validate').click();}
-}catch(e){$('status').textContent=e.message+' Open in a recent Chrome or Edge browser with WebGPU enabled.';console.error(e);}
+}catch(e){
+ if(startupFirst){$('resolution').textContent='CPU renderer';toast('GPU unavailable · continuing on CPU');document.body.dataset.backend='wasm';}
+ else $('status').textContent=e.message+' Open in a recent Chrome or Edge browser with WebGPU enabled.';
+ console.error(e);
+}

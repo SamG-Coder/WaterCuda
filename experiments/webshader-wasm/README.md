@@ -5,8 +5,9 @@ production `.cu` files, uses WebShader's compiler frontend and parsed kernel ABI
 and generates C++ execution wrappers that Emscripten/LLVM compiles into WASM.
 All **17 WaterCuda kernels** compile, including the FFT, terrain cache, foliage
 atlas, underwater reef, reflections and final shading. No procedural world or
-kernel is reimplemented in JavaScript. The main app and vendored WebShader package
-are separate from the experiment. The compiler and generic runtime now come from
+kernel is reimplemented in JavaScript. The main app now uses this worker for its
+default CPU-to-GPU startup; this directory retains the standalone diagnostic UI.
+The compiler and generic runtime now come from
 upstream CUDA-WebShader commit `9011955806cee30636ba24ae34b22d218e84196f`, vendored
 with provenance in `vendor/cuda-webshader/UPSTREAM.json`. Local compiler files are
 compatibility re-exports, not a second implementation. WaterCuda only owns its
@@ -28,9 +29,9 @@ node experiments/webshader-wasm/server.mjs 8091
 
 Open **http://localhost:8091/experiments/webshader-wasm/**. This separate server
 supplies COOP `same-origin`, COEP `require-corp`, and the WASM MIME type. Shared
-WASM threads require cross-origin isolation; port 8090's original server does not
-supply these headers. The experiment binds only to localhost. Production hosting
-headers have not been changed.
+WASM threads require cross-origin isolation. The main app uses a scope-local
+service worker to supply these headers on GitHub Pages and port 8090, with one
+automatic reload on the first visit. The experiment server binds only to localhost.
 
 Options: `?threads=1`, `?threads=4` (default), or `?threads=8`; `&auto=0` keeps WASM
 active until you press the GPU button; `&seed=42` changes the initial seed.

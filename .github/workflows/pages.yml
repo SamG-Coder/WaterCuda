@@ -19,6 +19,25 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      - uses: actions/checkout@v4
+        with:
+          repository: emscripten-core/emsdk
+          ref: main
+          path: .native/emsdk
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .native/emsdk/upstream
+            .native/emsdk/node
+            .native/emsdk/downloads
+          key: emscripten-6.0.10-${{ runner.os }}
+      - name: Build shared-memory CUDA WASM
+        shell: bash
+        run: |
+          .native/emsdk/emsdk install 6.0.10
+          .native/emsdk/emsdk activate 6.0.10
+          source .native/emsdk/emsdk_env.sh
+          npm run build:wasm
       - run: node tools/pages.mjs
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
