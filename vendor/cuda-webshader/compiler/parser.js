@@ -1,10 +1,10 @@
-import {evaluateModuleConstant} from './module-constexpr.js?v=6df2904275913c48';
-import {parseScopedEnum} from './scoped-enums.js?v=6df2904275913c48';
-import {CURAND_XORWOW_SOURCE} from './curand-xorwow.js?v=6df2904275913c48';
+import {evaluateModuleConstant} from './module-constexpr.js';
+import {parseScopedEnum} from './scoped-enums.js';
+import {CURAND_XORWOW_SOURCE} from './curand-xorwow.js';
 /** A deliberately bounded CUDA C frontend. No eval, regex transpilation, or source-specific rewrites. */
-import {parseValueClass,finishValueClasses,parseExternalValueMethod} from './value-classes.js?v=6df2904275913c48';
-import {forwardingMacro,expressionMacro} from './macros.js?v=6df2904275913c48';
-import {integerExpression} from './integer-expression.js?v=6df2904275913c48';
+import {parseValueClass,finishValueClasses,parseExternalValueMethod} from './value-classes.js';
+import {forwardingMacro,expressionMacro} from './macros.js';
+import {integerExpression} from './integer-expression.js';
 export class CompileError extends Error {
   constructor(message, token = {}, source = '') {
     const line = token.line || 1, column = token.column || 1;
@@ -15,9 +15,9 @@ export class CompileError extends Error {
 const NUM = /^(?:0[xX][\da-fA-F]+(?:[uU][lL]?|[lL][uU])?|(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?(?:[uU][lL]?|[lL][uU]|[fF])?)/;
 const WORD = /^[A-Za-z_]\w*/;
 const OPERATORS = ['<<<', '>>>', '<<=', '>>=', '::', '++', '--', '+=', '-=', '*=', '/=', '%=', '==', '!=', '<=', '>=', '&&', '||', '<<', '>>', '&=', '|=', '^=', '->'];
-const TYPES = new Set(['float', 'int', 'uint', 'unsigned', 'bool', 'void', 'float2', 'float3', 'float4']);
+const TYPES = new Set(['__half','__half2','float', 'int', 'uint', 'unsigned', 'bool', 'void', 'float2', 'float3', 'float4']);
 const QUALIFIERS = new Set(['const', '__shared__', '__restrict__', '__restrict', 'restrict','extern']);
-const MAP = { float: 'f32', int: 'i32', uint: 'u32', bool: 'bool', void: 'void', float2: 'vec2<f32>', float3: 'vec3<f32>', float4: 'vec4<f32>' };
+const MAP = { __half:'f16',__half2:'vec2<f16>', float: 'f32', int: 'i32', uint: 'u32', bool: 'bool', void: 'void', float2: 'vec2<f32>', float3: 'vec3<f32>', float4: 'vec4<f32>' };
 TYPES.add('uchar');MAP.uchar='cw_uchar';
 TYPES.add('short');MAP.short='cw_short';TYPES.add('ushort');MAP.ushort='cw_ushort';
 TYPES.add('uchar4');MAP.uchar4='cw_uchar4';
@@ -55,7 +55,7 @@ export function tokenize(source, defines = {}) {
       }
       if(/^#\s*(elif)\b/.test(directive))throw new CompileError('Unsupported conditional directive; preprocess it first.',token,source);
       if(!enabled){advance(directive);continue;}
-      if(/^#\s*pragma\s+unroll(?:\s+[1-9]\d*)?\s*(?:\/\/.*)?$/.test(directive.trimEnd())){advance(directive);continue;}
+      const unroll=directive.trimEnd().match(/^#\s*pragma\s+unroll(?:\s+([1-9]\d*))?\s*(?:\/\/.*)?$/);if(unroll){tokens.push({...token,kind:'pragma-unroll',value:'#pragma unroll',factor:unroll[1]?Number(unroll[1]):true});advance(directive);continue;}
       const alias=directive.trimEnd().match(/^#\s*define\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:\/\/.*)?$/);
       const definedName=directive.match(/^#\s*define\s+([A-Za-z_]\w*)/)?.[1];if(definedName&&aliases.has(definedName))throw new CompileError('Macro redefinition is unsupported.',token,source);
       if(alias){if(macros.has(alias[1])){advance(directive);continue;}if(forwarders.has(alias[1])||expressions.has(alias[1])||objectExpressions.has(alias[1])||aliases.size>=128)throw new CompileError('Duplicate or excessive identifier macro alias.',token,source);aliases.set(alias[1],alias[2]);advance(directive);continue;}
@@ -379,6 +379,7 @@ export class Parser {
   }
   statement() {
     const token = this.peek();
+    if(token.kind==='pragma-unroll'){this.take();const loop=this.statement();if(!['for','while','do'].includes(loop.kind))this.fail('#pragma unroll must precede a loop.',token);loop.unroll=token.factor;return loop;}
     if(this.match('asm')||this.match('__asm__')){
       this.match('volatile');this.take('(');let instruction='';while(this.peek().kind==='string')instruction+=this.take().value.slice(1,-1);
       if(!/^\s*vabsdiff4\.u32\.u32\.u32\.add\s+%0\s*,\s*%1\s*,\s*%2\s*,\s*%3\s*;\s*$/.test(instruction))this.fail('Inline PTX supports only vabsdiff4.u32.u32.u32.add with four positional registers.',token);

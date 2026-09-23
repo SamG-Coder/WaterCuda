@@ -1,5 +1,5 @@
-import {recordLeaves} from './record-parameters.js?v=6df2904275913c48';
-import {integerExpression} from './integer-expression.js?v=6df2904275913c48';
+import {recordLeaves} from './record-parameters.js';
+import {integerExpression} from './integer-expression.js';
 // Resolve launch settings from immutable values in their lexical scope.
 function launchConstants(fn,constantValue){
  const result=new Map();

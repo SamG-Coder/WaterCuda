@@ -1,3 +1,5 @@
+import {vectorConstructor} from './vector-constructor.js';
+import {unrollCount} from './loop-unroll.js';
 import {trimWgslDependencies} from './wgsl-dependencies.js';
 import {specializeDependencies} from './specialize-dependencies.js';
 import {cloneAst} from './clone-ast.js';
@@ -26,8 +28,8 @@ export const arrayOf = (element, length = null) => ({kind: 'array', element, len
 export const typeName = t => isArray(t) ? `array<${typeName(t.element)}${t.length == null ? '' : `, ${t.length}`}>` : t;
 export const vectorLength = t => typeof t === 'string' && /^vec[234]</.test(t) ? Number(t[3]) : 0;
 export const vectorElement = t => vectorLength(t)?t.slice(5,-1):t;
-export const typeStride = t => isArray(t) ? typeStride(t.element) * t.length : vectorLength(t) === 3 ? 16 : (vectorLength(t) || 1) * 4;
-const numeric = t => ['f32', 'i32', 'u32','cw_uchar','cw_short','cw_ushort'].includes(t);
+export const typeStride = t => isArray(t) ? typeStride(t.element) * t.length : (vectorLength(t) === 3 ? 4 : (vectorLength(t) || 1)) * (vectorElement(t)==='f16'?2:4);
+const numeric = t => ['f16','f32', 'i32', 'u32','cw_uchar','cw_short','cw_ushort'].includes(t);
 const uniformScalar=t=>['cw_short','cw_ushort'].includes(t)?{type:t==='cw_short'?'i32':'u32',sourceType:t}:{type:t};
 const narrow = t => ['cw_uchar','cw_short','cw_ushort'].includes(t);
 const indent = lines => lines.map(l => `  ${l}`);
@@ -49,7 +51,7 @@ export function walk(node, visit) {
     else if (val && typeof val === 'object') walk(val, visit);
   }
 }
-const cudaValueSize=type=>['cw_short','cw_ushort','cw_uchar2'].includes(type)?2:['cw_uchar','bool'].includes(type)?1:type==='cw_uchar4'?4:type==='cw_extent'?24:type==='cw_size64'?8:['f32','i32','u32'].includes(type)?4:vectorLength(type)?vectorLength(type)*4:null;
+const cudaValueSize=type=>vectorElement(type)==='f16'?(vectorLength(type)||1)*2:['cw_short','cw_ushort','cw_uchar2'].includes(type)?2:['cw_uchar','bool'].includes(type)?1:type==='cw_uchar4'?4:type==='cw_extent'?24:type==='cw_size64'?8:['f32','i32','u32'].includes(type)?4:vectorLength(type)?vectorLength(type)*4:null;
 function constantValue(n) {
   if(n.kind==='sizeof'){const size=cudaValueSize(n.target);if(size===null)throw new CompileError('sizeof requires a supported built-in value type.',n.token);return size;}
   if (n.kind === 'literal') return Number(n.value.replace(/^0[xX]/.test(n.value) ? /[uU]$/ : /[fFuU]$/, ''));
@@ -211,7 +213,7 @@ class Emitter {
     // C++ promotes a bool to int before the usual scalar arithmetic conversions.
     if(a==='bool'&&numeric(b))a='i32';
     if(b==='bool'&&numeric(a))b='i32';
-    if (numeric(a) && numeric(b)) return a === 'f32' || b === 'f32' ? 'f32' : a === 'u32' || b === 'u32' ? 'u32' : 'i32';
+    if (numeric(a) && numeric(b)) return ['f32','f16'].includes(a) || ['f32','f16'].includes(b) ? 'f32' : a === 'u32' || b === 'u32' ? 'u32' : 'i32';
     this.fail(`Incompatible operand types: ${typeName(a)} and ${typeName(b)}. Use explicit scalar/vector components.`, n);
   }
   convert(code, from, to, n) {
@@ -222,6 +224,7 @@ class Emitter {
     if(from==='cw_size64'||to==='cw_size64')this.extentUsed=true;
     if(to==='cw_size64'&&['i32','u32','bool'].includes(from))return from==='i32'?`vec2<u32>(u32(${code}), select(0u, 4294967295u, ${code} < 0i))`:from==='bool'?`vec2<u32>(select(0u,1u,${code}),0u)`:`vec2<u32>(${code},0u)`;
     if (typeName(from) === typeName(to) && !isArray(to)) return code;
+    if(from==='f16'&&to==='cw_f64'){this.float64Used=true;return `cw_d_from_f32(f32(${code}))`;}
     if(to==='cw_f64'&&(numeric(from)||from==='bool')){this.float64Used=true;return from==='bool'?`cw_d_from_u32(select(0u,1u,${code}))`:from==='f32'?`cw_d_from_f32(${code})`:['i32','cw_short'].includes(from)?`cw_d_from_i32(i32(${code}))`:`cw_d_from_u32(u32(${code}))`;}
     if(from==='cw_f64'&&to==='f32'){this.float64Used=true;return `cw_d_to_f32(${code})`;}
     if(from==='cw_f64'&&to==='bool'){this.float64Used=true;return `!cw_d_zero(${code})`;}
@@ -232,7 +235,7 @@ class Emitter {
     if(from==='cw_uchar'){if(to==='bool')return `(${code} != 0u)`;if(numeric(to))return `${to}(${code})`;}
     if(from==='cw_size64'&&['i32','u32'].includes(to))return `${to}((${code}).x)`;
     if (numeric(from) && numeric(to)) return `${to}(${code})`;
-    if (to === 'bool' && numeric(from)) return `(${code} != ${from === 'f32' ? '0.0f' : from === 'u32' ? '0u' : '0i'})`;
+    if (to === 'bool' && numeric(from)) return `(${code} != ${from === 'f16' ? '0.0h' : from === 'f32' ? '0.0f' : from === 'u32' ? '0u' : '0i'})`;
     if (from === 'bool' && numeric(to)) return `select(${to}(0), ${to}(1), ${code})`;
     this.fail(`Cannot convert ${typeName(from)} to ${typeName(to)}.`, n);
   }
@@ -655,6 +658,7 @@ class Emitter {
     if (n.callee.kind !== 'id') this.fail('Only named functions are supported.', n);
     const name = n.callee.name; n.callName = name;
     if(name.startsWith('cw_native_tile_'))return emitNativeTile(this,n,name);
+    if(name==='__clz'){if(n.args.length!==1)this.fail('__clz requires one 32-bit integer.',n);const a=this.expr(n.args[0]);if(!['i32','u32'].includes(a.type))this.fail('__clz requires one 32-bit integer.',n);return this.result(n,'i32',`i32(countLeadingZeros(u32(${a.code})))`,a.pre);}
     if(name==='__popc'){if(n.args.length!==1)this.fail('__popc requires one integer.',n);const a=this.expr(n.args[0]);if(!['i32','u32'].includes(a.type))this.fail('__popc requires an integer.',n);return this.result(n,'i32',`i32(countOneBits(u32(${a.code})))`,a.pre);}
     if(name==='__ffs'){
       if(n.args.length!==1)this.fail('__ffs requires one 32-bit integer.',n);const a=this.expr(n.args[0]);if(!['i32','u32'].includes(a.type))this.fail('__ffs requires one 32-bit integer.',n);return this.result(n,'i32',`(i32(firstTrailingBit(u32(${a.code}))) + 1i)`,a.pre);
@@ -762,6 +766,16 @@ class Emitter {
     if(name==='float'&&n.args.length===1){const value=this.expr({kind:'cast',target:'f32',value:n.args[0],token:n.token});return this.result(n,'f32',value.code,value.pre);}
     const args = n.args.map(a => this.argument(a)), pre = args.flatMap(a => a.pre);
     if(n.printfIntegerArguments&&args.some(a=>!['i32','u32','cw_short','cw_ushort','cw_uchar','bool'].includes(a.type)))this.fail('Diagnostic integer formats require integer arguments.',n);
+    if (['__float_as_uint','__uint_as_float','__float_as_int','__int_as_float'].includes(name)) {
+      const types = {__float_as_uint:['f32','u32'],__uint_as_float:['u32','f32'],__float_as_int:['f32','i32'],__int_as_float:['i32','f32']};
+      const [from,to] = types[name];
+      if(args.length!==1 || args[0].type!==from) this.fail(name+' requires one '+from+' argument.',n);
+      return this.result(n,to,`bitcast<${to}>(${args[0].code})`,pre);
+    }
+    const halfConversions={__float2half_rn:['f32','f16'],__half2float:['f16','f32'],__half22float2:['vec2<f16>','vec2<f32>'],__float22half2_rn:['vec2<f32>','vec2<f16>']};
+    if(halfConversions[name]){const [from,to]=halfConversions[name];if(args.length!==1||args[0].type!==from)this.fail(name+' requires one '+from+' argument.',n);return this.result(n,to,`${to}(${args[0].code})`,pre);}
+    if(name==='__floats2half2_rn'){if(args.length!==2||args.some(a=>a.type!=='f32'))this.fail(name+' requires two float arguments.',n);return this.result(n,'vec2<f16>',`vec2<f16>(${args.map(a=>'f16('+a.code+')').join(', ')})`,pre);}
+    if(['__hmul','__hadd','__hsub','__hmul2','__hadd2','__hsub2'].includes(name)){const type=name.endsWith('2')?'vec2<f16>':'f16';if(args.length!==2||args.some(a=>a.type!==type))this.fail(name+' requires two '+type+' arguments.',n);const op=name.startsWith('__hmul')?'*':name.startsWith('__hadd')?'+':'-';return this.result(n,type,`(${args[0].code} ${op} ${args[1].code})`,pre);}
     if(name==='isfinite'){if(args.length!==1||args[0].type!=='f32')this.fail('isfinite currently supports one float argument.',n);return this.result(n,'bool',`((bitcast<u32>(${args[0].code}) & 2139095040u) != 2139095040u)`,pre);}
     if(name==='__mul24'||name==='__umul24'){
       if(args.length!==2||args.some(a=>!['i32','u32'].includes(a.type)))this.fail(`${name} requires two 32-bit integer arguments.`,n);
@@ -772,6 +786,7 @@ class Emitter {
     if(['make_uchar2','make_uchar4'].includes(name)){const count=name==='make_uchar2'?2:4;if(args.length!==count||args.some(a=>!numeric(a.type)&&a.type!=='bool'))this.fail('Packed byte constructor requires '+count+' scalar components.',n);const components=args.map((a,i)=>{const value=a.type==='f32'?`u32(i32(${a.code}))`:this.convert(a.code,a.type,'u32',n);return `((${value} & 255u) << ${i*8}u)`;});return this.result(n,count===2?'cw_uchar2':'cw_uchar4',`(${components.join(' | ')})`,pre);}
     if (casts[name]) { if (args.length !== 1) this.fail('Scalar casts require one argument.', n); return this.result(n, casts[name], this.convert(args[0].code, args[0].type, casts[name], n), pre); }
     if (/^make_(float|uint|int)[234]$/.test(name)) {
+      if(/^make_float[234]$/.test(name)&&args.length===Number(name.at(-1))){const vector=vectorConstructor(this,n.args);if(vector!==null)return this.result(n,`vec${args.length}<f32>`,vector,pre);}
       if(name==='make_float3'&&args.length===1&&args[0].type==='vec4<f32>')return this.result(n,'vec3<f32>',`${args[0].code}.xyz`,pre);
       if(name==='make_float4'&&args.length===2&&args[0].type==='vec3<f32>'&&args[1].type==='f32')return this.result(n,'vec4<f32>',`vec4<f32>(${args[0].code}, ${args[1].code})`,pre);
       const count = Number(name.at(-1)); if (args.length !== count && args.length !== 1) this.fail(`${name} needs ${count} arguments.`, n);
@@ -1075,6 +1090,8 @@ class Emitter {
         const condition = n.condition ? this.expr(n.condition) : {code: 'true', type: 'bool', pre: []};
         const inner = this.body(n.body), step = n.kind === 'for' && n.step ? this.effect(n.step) : [];
         this.loopDepth--; this.scopes.pop();
+        const copies=unrollCount(n);
+        if(copies!==null)return ['{',...indent(init),...Array.from({length:copies},()=>['  {',...indent(indent(inner)),'  }',...indent(step)]).flat(),'}'];
         return ['{', ...indent(init),...(n.provenTileVoteLoop?['  _ = subgroupBallot(true);','  @diagnostic(off, subgroup_uniformity)']:[]), '  loop {', ...indent(indent([...condition.pre, `if (!${this.convert(condition.code, condition.type, 'bool', n)}) { break; }`, ...inner, ...(step.length ? ['continuing {', ...indent(step), '}'] : [])])), '  }', '}'];
       }
       case 'return': {
@@ -1108,6 +1125,7 @@ class Emitter {
     for(const s of this.structs.values())header.push(`struct ${s.type} {`,...s.fields.map(f=>`  cw_field_${f.name}: ${typeName(f.resolvedType)},`),'}');
     const sharedAtomicType = t => isArray(t) ? `array<${sharedAtomicType(t.element)}, ${t.length}>` : `atomic<${t==='f32'?'u32':t}>`;
     for (const p of [...this.kernel.params,...this.deviceParams]) {
+      if(vectorElement(p.type)==='f16'&&!p.pointer)this.fail('Half kernel parameters passed by value are unsupported; use half storage pointers or local/shared half values.',p);
       const imported=this.objectImports.find(i=>i.name===p.name);if(imported&&p.pointer){const symbol={name:p.name,rootBufferName:p.name,type:arrayOf(p.type),code:'cw_import_'+imported.id,constant:p.constant,atomic:false,kind:'buffer',objectImport:imported,...(shiftedPointers(this.kernel).has(p.name)||this.launchConsumer?.buffers.some(b=>b.name===p.name)?{offsetCode:'cw_pointer_'+p.name}:{})};this.add(p.name,symbol,p,true);p.symbol=symbol;this.bufferSymbols.set(p.name,symbol);continue;}
       if (p.shared || p.reference || p.external || p.type === 'void') this.fail('Invalid kernel parameter type.', p);
       if(!p.pointer&&this.structs.has(p.type)){
@@ -1293,8 +1311,9 @@ fn cw_pow_f32(base: f32, exponent: f32) -> f32 {
     const storageSize = this.shared.reduce((n, s) => n + Math.ceil(typeStride(s.type) / 16) * 16, 0);
     let usesPackedBytes=(this.ast.structs||[]).some(s=>s.fields.some(f=>['cw_uchar','cw_uchar2','cw_uchar4'].includes(f.type)));walk(this.ast,n=>{if(['cw_uchar','cw_uchar2','cw_uchar4'].includes(n.type)||['cw_uchar','cw_uchar2','cw_uchar4'].includes(n.result))usesPackedBytes=true;});let usesShort=false;walk(this.ast,n=>{if(['cw_short','cw_ushort'].includes(n.type)||['cw_short','cw_ushort'].includes(n.result))usesShort=true;});if(usesShort)header.unshift('alias cw_short = i32;','alias cw_ushort = u32;');if(usesPackedBytes)header.unshift('alias cw_uchar = u32;','alias cw_uchar2 = u32;','alias cw_uchar4 = u32;');
     if(this.kernel.nativeTiles&&(this.workgroupSize[0]%32||this.workgroupSize[1]!==1||this.workgroupSize[2]!==1))this.fail('Static tiles require a one-dimensional workgroup containing complete 32-thread tiles.',this.kernel);
-    const wgsl = [...(this.kernel.nativeTiles?['enable subgroups;','enable subgroup_size_control;','requires subgroup_id, subgroup_uniformity;']:[]),...header, '', ...helperLines, '', `${this.kernel.nativeTiles?'@subgroup_size(32) ':''}@compute @workgroup_size(${this.workgroupSize.join(', ')})`, 'fn main(', ...(this.kernel.nativeTiles?['  @builtin(subgroup_id) cw_subgroup: u32,','  @builtin(subgroup_invocation_id) cw_lane: u32,']:['  @builtin(local_invocation_id) cw_thread: vec3<u32>,']), '  @builtin(workgroup_id) cw_block: vec3<u32>,', '  @builtin(num_workgroups) cw_grid: vec3<u32>', ') {', ...(this.kernel.nativeTiles?['  let cw_thread=vec3<u32>(cw_subgroup*32u+cw_lane,0u,0u);']:[]),...indent(main), '}', ''].join('\n');
-    return {version: COMPILER_VERSION, name: this.kernel.name, entryPoint: 'main', wgsl, metadata: {...(this.kernel.nativeTiles?{nativeTiles:{size:32,logicalThreadRemapping:true},requiredFeatures:['subgroups','subgroup-size-control'],requiredWgslFeatures:['subgroup_id','subgroup_uniformity']}:{}),...(this.launchQueues.length?{deviceLaunchQueue:{producerOnly:true,queues:this.launchQueues.map(({variable,...q})=>q)}}:{}),...(this.objectHeaps.size||this.deviceHeaps.size||this.launchQueues.length||this.objectImports.length?{objectHeap:{scope:this.persistentObjects?'arena':'invocation',persistent:this.persistentObjects,imports:this.objectImports,pointerBuffers:this.deviceHeaps.size||this.ast.bufferReferenceTypes?.length?bindings.filter(b=>this.containsDevicePointer(b.elementType)).map(b=>b.name):[],types:[...launchQueueStorageTypes(this.launchQueues),...[...this.deviceHeaps.values()].map(h=>({name:h.name,capacity:h.capacity,binding:h.binding,byteLength:h.byteLength,recordLayout:h.recordLayout})),...[...this.objectHeaps.values()].map(h=>({name:h.name,capacity:h.capacity,tag:h.tag,...(this.persistentObjects?{binding:h.binding,byteLength:h.byteLength,recordLayout:h.recordLayout}:{})}))]}}:{}),workgroupSize: this.workgroupSize, bindings,...(Object.keys(this.bufferAliases).length?{bufferAliases:{...this.bufferAliases}}:{}), scalars, uniformSize, uniformBinding: uniformSize ? bindings.length+textures.length*2+surfaces.length : null,...(textures.length?{textures}:{}),...(textureScales.length?{textureScales}:{}),...(textureLengths.length?{textureLengths}:{}),...(surfaces.length?{surfaces}:{}), workgroupStorageBytes: storageSize,...(this.dynamicSharedUsed?{dynamicSharedMemoryBytes:this.dynamicSharedBytes}:{}), barrier: this.usage.storageBarrier ? 'workgroup-and-storage' : 'workgroup'}, ast: this.ast, kernel: this.kernel};
+    let usesHalf=false;walk(this.ast,n=>{if(vectorElement(n.type)==='f16'||vectorElement(n.result)==='f16'||vectorElement(n.target)==='f16')usesHalf=true;});
+    const wgsl = [...(usesHalf?['enable f16;']:[]),...(this.kernel.nativeTiles?['enable subgroups;','enable subgroup_size_control;','requires subgroup_id, subgroup_uniformity;']:[]),...header, '', ...helperLines, '', `${this.kernel.nativeTiles?'@subgroup_size(32) ':''}@compute @workgroup_size(${this.workgroupSize.join(', ')})`, 'fn main(', ...(this.kernel.nativeTiles?['  @builtin(subgroup_id) cw_subgroup: u32,','  @builtin(subgroup_invocation_id) cw_lane: u32,']:['  @builtin(local_invocation_id) cw_thread: vec3<u32>,']), '  @builtin(workgroup_id) cw_block: vec3<u32>,', '  @builtin(num_workgroups) cw_grid: vec3<u32>', ') {', ...(this.kernel.nativeTiles?['  let cw_thread=vec3<u32>(cw_subgroup*32u+cw_lane,0u,0u);']:[]),...indent(main), '}', ''].join('\n');
+    return {version: COMPILER_VERSION, name: this.kernel.name, entryPoint: 'main', wgsl, metadata: {...(usesHalf||this.kernel.nativeTiles?{requiredFeatures:[...(usesHalf?['shader-f16']:[]),...(this.kernel.nativeTiles?['subgroups','subgroup-size-control']:[])]}:{}),...(this.kernel.nativeTiles?{nativeTiles:{size:32,logicalThreadRemapping:true},requiredWgslFeatures:['subgroup_id','subgroup_uniformity']}:{}),...(this.launchQueues.length?{deviceLaunchQueue:{producerOnly:true,queues:this.launchQueues.map(({variable,...q})=>q)}}:{}),...(this.objectHeaps.size||this.deviceHeaps.size||this.launchQueues.length||this.objectImports.length?{objectHeap:{scope:this.persistentObjects?'arena':'invocation',persistent:this.persistentObjects,imports:this.objectImports,pointerBuffers:this.deviceHeaps.size||this.ast.bufferReferenceTypes?.length?bindings.filter(b=>this.containsDevicePointer(b.elementType)).map(b=>b.name):[],types:[...launchQueueStorageTypes(this.launchQueues),...[...this.deviceHeaps.values()].map(h=>({name:h.name,capacity:h.capacity,binding:h.binding,byteLength:h.byteLength,recordLayout:h.recordLayout})),...[...this.objectHeaps.values()].map(h=>({name:h.name,capacity:h.capacity,tag:h.tag,...(this.persistentObjects?{binding:h.binding,byteLength:h.byteLength,recordLayout:h.recordLayout}:{})}))]}}:{}),workgroupSize: this.workgroupSize, bindings,...(Object.keys(this.bufferAliases).length?{bufferAliases:{...this.bufferAliases}}:{}), scalars, uniformSize, uniformBinding: uniformSize ? bindings.length+textures.length*2+surfaces.length : null,...(textures.length?{textures}:{}),...(textureScales.length?{textureScales}:{}),...(textureLengths.length?{textureLengths}:{}),...(surfaces.length?{surfaces}:{}), workgroupStorageBytes: storageSize,...(this.dynamicSharedUsed?{dynamicSharedMemoryBytes:this.dynamicSharedBytes}:{}), barrier: this.usage.storageBarrier ? 'workgroup-and-storage' : 'workgroup'}, ast: this.ast, kernel: this.kernel};
   }
 }
 function resolveTraitTypes(fn, ast, parameter, argument) {

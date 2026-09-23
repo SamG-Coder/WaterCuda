@@ -1,4 +1,4 @@
-import {parse,CompileError} from './parser.js?v=6df2904275913c48';
+import {parse,CompileError} from './parser.js';
 // Capture bounded integer printf events; decoding happens explicitly after GPU completion.
 export function lowerPrintf(ast,options){
  const calls=[],seen=new WeakSet();const visit=(node,parent)=>{if(!node||typeof node!=='object'||seen.has(node))return;seen.add(node);if(node.kind==='call'&&node.callee?.name==='printf')calls.push({node,parent});for(const [key,v]of Object.entries(node))if(key!=='token'){if(Array.isArray(v))v.forEach(n=>visit(n,node));else if(v&&typeof v==='object')visit(v,node);}};for(const fn of ast.functions)visit(fn.body,null);

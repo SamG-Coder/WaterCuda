@@ -1,4 +1,4 @@
-import {lowerNativeTilePhases} from './native-tile-phases.js?v=6df2904275913c48';
+import {lowerNativeTilePhases} from './native-tile-phases.js';
 // A CUDA tile maps to an explicitly sized WGSL subgroup. Logical CUDA thread
 // indices are remapped from subgroup IDs, never assumed to equal physical IDs.
 export function lowerNativeTiles(ast,walk,fail){

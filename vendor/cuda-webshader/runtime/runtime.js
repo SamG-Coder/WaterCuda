@@ -1,10 +1,10 @@
-import {ObjectArena} from './object-arena.js?v=6df2904275913c48';
-import {runRecursiveLaunches} from './recursive-launches.js?v=6df2904275913c48';
-import {SORT_SOURCE,SORT_FLOAT_SOURCE} from './sort-kernels.js?v=6df2904275913c48';
-import {FFT_SOURCE,FORWARD_FFT_SOURCE,REAL_FFT_SOURCE} from './fft-kernels.js?v=6df2904275913c48';
-import {SCAN_SOURCE} from './scan-kernels.js?v=6df2904275913c48';
+import {ObjectArena} from './object-arena.js';
+import {runRecursiveLaunches} from './recursive-launches.js';
+import {SORT_SOURCE,SORT_FLOAT_SOURCE} from './sort-kernels.js';
+import {FFT_SOURCE,FORWARD_FFT_SOURCE,REAL_FFT_SOURCE} from './fft-kernels.js';
+import {SCAN_SOURCE} from './scan-kernels.js';
 /** WebGPU runtime: cached pipelines/bindings, batched dispatch and a per-batch uniform snapshot arena. */
-import {compile} from '../compiler/compiler.js?v=6df2904275913c48';
+import {compile} from '../compiler/compiler.js';
 const roundUp = (n, alignment) => Math.ceil(n / alignment) * alignment;
 let resourceId = 0;
 export function packScalars(metadata, values, target = new ArrayBuffer(metadata.uniformSize)) {
@@ -44,16 +44,19 @@ export function validateWorkgroup(metadata, limits) {
 }
 export class GpuRuntime {
   static async create(options = {}) {
+    if(options.useAdapterWorkgroupLimits !== undefined && typeof options.useAdapterWorkgroupLimits !== 'boolean') throw new TypeError('useAdapterWorkgroupLimits must be a boolean.');
+    if(options.useAdapterBufferLimits !== undefined && typeof options.useAdapterBufferLimits !== 'boolean') throw new TypeError('useAdapterBufferLimits must be a boolean.');
     if (!globalThis.navigator?.gpu && !options.device) throw new Error('WebGPU is required. Open this project on localhost or HTTPS in a WebGPU-capable browser. WebGL cannot run these kernels.');
     const adapter = options.adapter || (!options.device ? await navigator.gpu.requestAdapter({powerPreference:'high-performance'}) : null);
     if (!adapter && !options.device) throw new Error('No WebGPU adapter is available. Check the browser GPU settings and graphics driver.');
-    const features = ['timestamp-query','core-features-and-limits','float32-filterable','subgroups','subgroup-size-control'].filter(f => adapter?.features.has(f));
+    const features = ['shader-f16','timestamp-query','core-features-and-limits','float32-filterable','subgroups','subgroup-size-control'].filter(f => adapter?.features.has(f));
     const requiredLimits = adapter ? {
+      ...(options.useAdapterWorkgroupLimits?{maxComputeWorkgroupStorageSize:adapter.limits.maxComputeWorkgroupStorageSize}:{}),
       maxStorageBuffersPerShaderStage: Math.min(adapter.limits.maxStorageBuffersPerShaderStage,16),
       maxComputeInvocationsPerWorkgroup: Math.min(adapter.limits.maxComputeInvocationsPerWorkgroup, 1024),
       maxComputeWorkgroupSizeX: Math.min(adapter.limits.maxComputeWorkgroupSizeX,1024),
-      maxStorageBufferBindingSize: Math.min(adapter.limits.maxStorageBufferBindingSize, 256 * 1024 * 1024),
-      maxBufferSize: Math.min(adapter.limits.maxBufferSize, 256 * 1024 * 1024)
+      maxStorageBufferBindingSize: options.useAdapterBufferLimits ? adapter.limits.maxStorageBufferBindingSize : Math.min(adapter.limits.maxStorageBufferBindingSize, 256 * 1024 * 1024),
+      maxBufferSize: options.useAdapterBufferLimits ? adapter.limits.maxBufferSize : Math.min(adapter.limits.maxBufferSize, 256 * 1024 * 1024)
     } : undefined;
     const device = options.device || await adapter.requestDevice({requiredFeatures:features, requiredLimits});
     return new GpuRuntime(device, {...options,adapter,ownsDevice:!options.device});

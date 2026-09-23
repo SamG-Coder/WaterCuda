@@ -10,7 +10,10 @@
     "start": "node server.mjs 8090",
     "test": "npm run build && node --test tests/*.test.mjs",
     "test:native": "node tools/native-test.mjs",
-    "test:browser": "node tools/coastal-browser-test.mjs"
+    "test:browser": "node tools/coastal-browser-test.mjs",
+    "build:wasm": "node experiments/webshader-wasm/build-threaded.mjs",
+    "test:wasm": "node experiments/webshader-wasm/test-barriers.mjs && node experiments/webshader-wasm/test-threaded.mjs 4",
+    "start:wasm": "node experiments/webshader-wasm/server.mjs 8091"
   },
   "engines": {
     "node": ">=20"

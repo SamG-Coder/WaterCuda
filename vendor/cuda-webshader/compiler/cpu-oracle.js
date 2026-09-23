@@ -3,9 +3,29 @@
  * This is not a WebGPU fallback and does not validate emitted WGSL or measure GPU performance.
  * Lanes run as cooperative generators, yielding at each __syncthreads site.
  */
-import {isArray, vectorLength, vectorElement, walk} from './compiler.js?v=6df2904275913c48';
+import {isArray, vectorLength, vectorElement, walk} from './compiler.js';
 const f = Math.fround;
+export function roundHalf(value){
+  if(!Number.isFinite(value)||value===0)return value;
+  const sign=value<0?-1:1,x=Math.abs(value);
+  if(x>=65520)return sign*Infinity;
+  const step=2**Math.max(-24,Math.floor(Math.log2(x))-10),scaled=x/step,lower=Math.floor(scaled),fraction=scaled-lower;
+  return sign*(lower+(fraction>0.5||fraction===0.5&&lower%2!==0?1:0))*step;
+}
+function decodeHalf(bits){
+  const sign=bits&32768?-1:1,exponent=(bits>>>10)&31,mantissa=bits&1023;
+  return exponent===31?(mantissa?NaN:sign*Infinity):exponent?sign*(1024+mantissa)*2**(exponent-25):sign*mantissa*2**-24;
+}
+function encodeHalf(value){
+  const rounded=roundHalf(value),sign=rounded<0||Object.is(rounded,-0)?32768:0,magnitude=Math.abs(rounded);
+  if(Number.isNaN(rounded))return 32256;
+  if(!Number.isFinite(rounded))return sign|31744;
+  if(magnitude<2**-14)return sign|Math.round(magnitude*2**24);
+  const exponent=Math.floor(Math.log2(magnitude));
+  return sign|((exponent+15)<<10)|Math.round((magnitude/2**exponent-1)*1024);
+}
 function convert(value,type){
+  if(type==='f16')return roundHalf(Number(value));
   if(type==='cw_size64')return BigInt.asUintN(64,BigInt(value));
   if(type==='cw_extent')return structuredClone(value);
   if(typeof type==='string'&&type.startsWith('cw_struct_'))return structuredClone(value);
@@ -19,10 +39,15 @@ function convert(value,type){
 }
 function zero(type,structs=[]){const spec=structs.find(s=>s.type===type);if(spec)return Object.fromEntries(spec.fields.map(f=>[f.name,zero(f.resolvedType,structs)]));if(isArray(type))return Array.from({length:type.length},()=>zero(type.element,structs));const n=vectorLength(type);return n?Array(n).fill(0):type==='bool'?false:0;}
 class BufferView {
-  constructor(data,type,offset=0){this.data=data;this.type=type;this.offset=offset;this.records=Array.isArray(data);this.width=this.records?1:vectorLength(type)||1;this.length=data.length/this.width;if(!Number.isInteger(this.length))throw new Error('Buffer record count is not integral.');}
+  constructor(data,type,offset=0){this.data=data;this.type=type;this.offset=offset;this.records=Array.isArray(data);this.width=this.records?1:vectorLength(type)||1;
+    if(!this.records&&vectorElement(type)==='f16'){
+      if(data.byteLength%(this.width*2))throw new Error('Half CPU buffers require complete binary16 records.');
+      this.halfView=new DataView(data.buffer,data.byteOffset,data.byteLength);this.length=data.byteLength/(this.width*2);
+    }else this.length=data.length/this.width;
+    if(!Number.isInteger(this.length))throw new Error('Buffer record count is not integral.');}
   check(i){if(!Number.isInteger(i)||i+this.offset<0||i+this.offset>=this.length)throw new RangeError(`CPU oracle detected out-of-bounds access at ${i}, offset ${this.offset}, length ${this.length}.`);}
-  get(i){this.check(i);i+=this.offset;return this.records?structuredClone(this.data[i]):this.width===1?(this.type==='bool'?!!this.data[i]:this.data[i]):Array.from(this.data.subarray(i*this.width,(i+1)*this.width));}
-  set(i,v){this.check(i);i+=this.offset;if(this.width===1)this.data[i]=convert(v,this.type);else this.data.set(convert(v,this.type),i*this.width);}
+  get(i){this.check(i);i+=this.offset;if(this.halfView)return this.width===1?decodeHalf(this.halfView.getUint16(i*2,true)):Array.from({length:this.width},(_,lane)=>decodeHalf(this.halfView.getUint16((i*this.width+lane)*2,true)));return this.records?structuredClone(this.data[i]):this.width===1?(this.type==='bool'?!!this.data[i]:this.data[i]):Array.from(this.data.subarray(i*this.width,(i+1)*this.width));}
+  set(i,v){this.check(i);i+=this.offset;if(this.halfView){const values=this.width===1?[v]:v;for(let lane=0;lane<this.width;lane++)this.halfView.setUint16((i*this.width+lane)*2,encodeHalf(values[lane]),true);return;}if(this.width===1)this.data[i]=convert(v,this.type);else this.data.set(convert(v,this.type),i*this.width);}
 }
 function binary(op,a,b,type){
   if(vectorLength(type))return Array.from({length:vectorLength(type)},(_,i)=>binary(op,Array.isArray(a)?a[i]:a,Array.isArray(b)?b[i]:b,vectorElement(type)));
@@ -30,8 +55,8 @@ function binary(op,a,b,type){
   a=convert(a,type);b=convert(b,type);
   if(type==='cw_size64'&&op==='*')return BigInt.asUintN(64,a*b);
   switch(op){
-    case '+':return convert(a+b,type);case '-':return convert(a-b,type);case '*':return convert(['f32','cw_f64'].includes(type)?a*b:Math.imul(a,b),type);
-    case '/':if(!b&&!['f32','cw_f64'].includes(type))throw new Error('Integer division by zero.');return convert(['f32','cw_f64'].includes(type)?a/b:Math.trunc(a/b),type);
+    case '+':return convert(a+b,type);case '-':return convert(a-b,type);case '*':return convert(['f16','f32','cw_f64'].includes(type)?a*b:Math.imul(a,b),type);
+    case '/':if(!b&&!['f16','f32','cw_f64'].includes(type))throw new Error('Integer division by zero.');return convert(['f16','f32','cw_f64'].includes(type)?a/b:Math.trunc(a/b),type);
     case '%':if(!b)throw new Error('Integer remainder by zero.');return convert(a%b,type);
     case '<':return a<b;case '>':return a>b;case '<=':return a<=b;case '>=':return a>=b;case '==':return a===b;case '!=':return a!==b;
     case '&':return convert(a&b,type);case '|':return convert(a|b,type);case '^':return convert(a^b,type);
@@ -122,6 +147,7 @@ class Context {
       else args.push(n.groupArgs?.[i]?null:yield* (n.referenceArgs?.[i]?this.ref(a):this.eval(a)));
     }
     if(['sincosf','__sincosf'].includes(name)){const phase=f(args[0]),s=f(Math.sin(phase)),c=f(Math.cos(phase));args[1].set(s);args[2].set(c);return;}
+    if(name==='__clz')return Math.clz32(args[0]);
     if(name==='__popc'){let x=args[0]>>>0,count=0;while(x){x=(x&(x-1))>>>0;count++;}return count;}
     if(name==='__ffs'){const x=args[0]|0;return x===0?0:32-Math.clz32(x&-x);}
     if(name==='__mul24')return Math.imul((args[0]<<8)>>8,(args[1]<<8)>>8);
@@ -133,9 +159,18 @@ class Context {
     if(['make_uchar2','make_uchar4'].includes(name))return args.reduce((packed,v,i)=>packed|((Number(v)&255)<<(i*8)),0)>>>0;
     if(['float','int','uint','bool','uchar'].includes(name))return convert(args[0],n.type);
     if(name==='make_float3'&&Array.isArray(args[0]))return args[0].slice(0,3);
+    if(['__float2half_rn','__half2float','__half22float2','__float22half2_rn'].includes(name))return convert(args[0],n.type);
+    if(name==='__floats2half2_rn')return convert(args,n.type);
+    if(['__hmul','__hadd','__hsub','__hmul2','__hadd2','__hsub2'].includes(name))return binary(name.startsWith('__hmul')?'*':name.startsWith('__hadd')?'+':'-',args[0],args[1],n.type);
     if(name==='make_float4'&&Array.isArray(args[0]))return [...args[0],args[1]];
     if(name==='length'&&!n.userHelper)return f(Math.sqrt(args[0].reduce((sum,a)=>f(sum+f(a*a)),0)));
     if(!n.userHelper&&(name==='dot'||name==='normalize')){const sum=args[0].reduce((sum,a,i)=>f(sum+f(a*(name==='dot'?args[1][i]:a))),0);return name==='dot'?sum:args[0].map(a=>f(a/Math.sqrt(sum)));}
+    if(['__float_as_uint','__float_as_int','__uint_as_float','__int_as_float'].includes(name)) {
+      const bits=new DataView(new ArrayBuffer(4));
+      if(name.startsWith('__float_as_')) { bits.setFloat32(0,args[0],true);return name==='__float_as_uint'?bits.getUint32(0,true):bits.getInt32(0,true); }
+      if(name==='__uint_as_float')bits.setUint32(0,args[0],true);else bits.setInt32(0,args[0],true);
+      return bits.getFloat32(0,true);
+    }
     if(name==='isfinite')return Number.isFinite(args[0]);
     if(['fminf','fmaxf'].includes(name)&&Array.isArray(args[0]))return args[0].map((a,i)=>f(name==='fminf'?Math.min(a,args[1][i]):Math.max(a,args[1][i])));
     if(/^make_(float|uint|int)[234]$/.test(name))return (args.length===1?Array(vectorLength(n.type)).fill(args[0]):args).map(v=>convert(v,vectorElement(n.type)));

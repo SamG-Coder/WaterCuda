@@ -1,0 +1,16 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WaterCuda · WebShader WASM experiment</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#09232d;color:#ebf5f4;font:14px system-ui}canvas{position:fixed;inset:0;width:100%;height:100%;object-fit:contain}#gpu{opacity:0;transition:opacity .45s;pointer-events:none}#input{position:fixed;inset:0}aside{position:absolute;top:20px;left:20px;width:365px;max-width:90vw;max-height:88vh;overflow:auto;padding:20px;background:#071f2eee;border:1px solid #ffffff24;border-radius:12px}h1{font-size:20px;margin:0 0 10px}p{line-height:1.5;color:#b4ced4}button,input,select{background:#183b48;color:white;border:1px solid #56717a;padding:8px;border-radius:5px}label{display:block;margin:10px 0}input{width:95px}pre{font:12px/1.6 monospace;white-space:pre-wrap}#events{max-height:180px;overflow:auto}a{color:#88d8e5}footer{position:absolute;bottom:15px;left:20px;color:white;text-shadow:0 1px 3px black}
+</style>
+<canvas id="cpu"></canvas><canvas id="gpu"></canvas><div id="input" tabindex="0"></div>
+<aside><h1>WebShader → WASM → GPU</h1><p>Full CUDA pipeline on shared-memory CPU threads, then handover to WebGPU.</p>
+<label>World seed <input id="seed" type="number" min="0" max="2147483647" value="884"> <button id="apply">Apply</button></label>
+<label>Scene <select id="scene"><option value="shore">Shoreline</option><option value="aerial">Aerial</option><option value="reef">Underwater reef</option><option value="coral">Coral specimen</option></select></label>
+<label>Weather <select id="weather"><option value="0">Automatic</option><option value="1">Clear</option><option value="2">Overcast</option><option value="3">Rain</option><option value="4">Storm</option></select></label>
+<label>GPU target <select id="target"><option value="full">Full WaterCuda renderer</option><option value="preview">Same preview kernel (parity test)</option></select></label>
+<button id="start">Compile GPU / hand over</button> <button id="freeze">Pause time</button>
+<pre id="stats">Loading generated WASM…</pre><pre id="events"></pre>
+<p id="parity"></p><a href="../../index.html">Main app (unchanged)</a></aside>
+<footer>Drag to look · WASD to fly · Q/E vertical · Shift boost · Wheel changes speed</footer>
+<script type="module" src="./app.js"></script></html>
