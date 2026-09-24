@@ -112,3 +112,13 @@ The vessel drives a persistent local 128 x 128 height/velocity wave grid at 2 m 
 Ship movement uses swept hull/terrain checks and seabed clearance; collision corrections feed back into the controller. Neutral steering has a small pitch dead zone. Fast water entry adds an impulse to the local wave grid, foam and bounded spray. Sweeps use 2 m steps over at most 256 m per rendered frame, limiting extreme per-frame travel to avoid skipping terrain.
 
 Ship camera/control refinement: the chase distance is 100 m. Left-drag freely orbits without changing vessel heading or pitch. Right-drag or F mouse capture steers/pitches with gradual response; A/D turns, W/S accelerates/reverses, and release coasts. Scroll remains speed control. The surface is no longer treated as partly submerged drag, and wave-driven heave/roll is damped. V exits/re-enters the ship.
+
+### CPU checkerboard rendering
+
+The production threaded WASM fallback alternates the two diagonal pixel pairs in each 2x2 block. Its persistent shared image buffer retains the opposite phase; camera movement fills missing pixels from current neighbours to avoid stale trails. Resolution, seed and mode changes initialize a complete frame. NIS presents the reconstructed image afterward.
+
+The CPU controller starts at 128 pixels wide and increases width by 32 after sustained frame times below 45 ms, reducing it above 55 ms. It measures worker round-trip and presentation submission, targets roughly 20 FPS, and grows buffers on demand up to the viewport width or a 2,073,600-pixel memory budget. Browser presentation completion is not GPU-timed. The WASM build adapts generated dispatch wrappers; CUDA source and the WebGPU/native rendering paths are unchanged.
+
+A lightweight geometry-guided checkerboard resolve runs in the CPU worker before NIS. It clamps temporal history to fresh neighbouring colours, rejects history during camera motion, and reduces history reuse on animated water. It uses existing depth, normal and material buffers and keeps raw checkerboard samples separate from the filtered output. This is a custom small filter inspired by denoising techniques, not an integration of NVIDIA NRD.
+
+CPU workers scale with reported hardware concurrency: up to eight rendering workers, reserving two logical CPUs on machines with enough cores. The CPU timing panel exposes each render stage. Once NIS is active, presentation skips the redundant 2D fallback paint; it resumes if NIS becomes unavailable.

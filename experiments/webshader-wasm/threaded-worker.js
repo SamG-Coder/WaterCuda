@@ -12,7 +12,7 @@ self.onmessage=async({data})=>{
   }
   if(data.type==='frame'){
    if(data.width&&data.height)world.resize(data.width,data.height);
-   const result=world.frame(data.camera,data.origin),pixels=new Uint8Array(result.pixels);postMessage({type:'frame',...result,pixels:pixels.buffer,width:world.width,height:world.height},[pixels.buffer]);
+   const result=world.frame(data.camera,data.origin,true),pixels=new Uint8Array(result.pixels);postMessage({type:'frame',...result,threads:program.threads,pixels:pixels.buffer,width:world.width,height:world.height},[pixels.buffer]);
   }
  }catch(e){postMessage({type:'error',message:String(e.stack||e)});}
 };

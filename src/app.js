@@ -40,7 +40,7 @@ $('sail').onclick=()=>{drifting=!drifting;$('sail').innerHTML=drifting?'Stop dri
 function toggleUI(){const clean=document.body.classList.toggle('clean');$('restore').hidden=!clean;}
 $('hide').onclick=toggleUI;$('restore').onclick=toggleUI;
 const input=new FlightInput(canvas,camera,{
- onShortcut:code=>{if(code==='KeyV'){toggleHelm(camera);toast(camera[14]===4?'Free flight � V to return to ship':'Ship controls');}if(code==='KeyB')preset('ship');if(code==='KeyH')toggleUI();if(code==='KeyF')input.capture();if(code==='Digit1')preset('coast');if(code==='Digit2')preset('aerial');if(code==='Digit3')preset('water');if(code==='Digit4')preset('shore');if(code==='Digit7')preset('reef');if(code==='Digit8')preset('coral');},
+ onShortcut:code=>{if(code==='KeyV'){toggleHelm(camera);toast(camera[14]===4?'Free flight � V to return to ship':'Ship controls');}if(code==='KeyB')preset('ship');if(code==='KeyH')toggleUI();if(code==='KeyF')input.capture();if(code==='Digit1')preset('coast');if(code==='Digit2')preset('aerial');if(code==='Digit3')preset('water');if(code==='Digit4')preset('shore');if(code==='Digit7')preset('reef');if(code==='Digit8')preset('coral');},
  onSpeed:delta=>{speed=Math.max(3,speed*Math.exp(-delta*.001));toast('Flight speed · '+Math.round(speed)+' m/s');},
  onLock:locked=>{$('fly').textContent=locked?'Flying · Esc to release':'Free camera · F';document.body.classList.toggle('exploring',locked);$('flightStatus').textContent=locked?'MOUSE LOOK · ESC TO RELEASE':'DRAG TO LOOK · F FOR MOUSE LOOK';}
 });
@@ -85,8 +85,9 @@ try{
   previewCanvas=document.createElement('canvas');previewCanvas.id='startup-preview';previewCanvas.setAttribute('aria-hidden','true');canvas.after(previewCanvas);
   startup=new WasmStartup(previewCanvas,{
    onFrame:data=>{
-    if(!startupFirst){startupFirst=true;document.body.dataset.backend='wasm';document.body.dataset.previewReady='true';$('loading').classList.add('done');}
-    $('fps').textContent=Math.round(1000/data.ms)+' FPS';$('resolution').textContent=data.width+' × '+data.height+' / CPU'+(data.nis?' · NIS 2×':'')+' · preparing GPU';
+    if(!startupFirst){$('quality').options[0].textContent='Auto · 20 FPS (CPU)';startupFirst=true;document.body.dataset.backend='wasm';document.body.dataset.previewReady='true';$('loading').classList.add('done');}
+    $('timings').textContent=Object.entries(data.timings||{}).map(([name,ms])=>name+': '+ms.toFixed(2)+' ms').join('\n')+'\nCPU frame: '+data.ms.toFixed(2)+' ms';
+    $('fps').textContent=Math.round(1000/data.ms)+' FPS';$('resolution').textContent=data.width+' × '+data.height+' / CPU'+(data.threads?' '+data.threads+' threads':'')+(data.checkerboard?' · checkerboard':'')+(data.nis?' · NIS 2×':'')+(url.searchParams.get('startup')==='cpu'?'':' · preparing GPU');
    },
    onError:message=>{console.warn('WASM startup:',message);toast('CPU preview unavailable · preparing GPU');}
   });
@@ -95,13 +96,19 @@ try{
  // Give the CPU a chance to show the scene first, without making GPU startup
  // depend on a successful WASM download or a responsive worker.
  if(startup)await Promise.race([startup.first,new Promise(resolve=>setTimeout(resolve,2500))]);
+ if(url.searchParams.get('startup')==='cpu'){
+  if(!startup)throw Error('CPU rendering requires cross-origin isolation');
+  if(!await startup.first)throw Error('CPU renderer failed to initialize');
+  document.body.dataset.ready='true';
+ }else{
  engine=await new Engine().init(canvas,message=>{$('status').textContent=message;$('timings').textContent='Preparing GPU: '+message;});
  const size=renderSize(innerWidth,innerHeight,$('quality').value==='auto'?autoWidth:Number($('quality').value));
  await engine.resize(size.width,size.height);engine.frame(camera,origin);await engine.runtime.idle();
  if(engine.errors.length)throw Error(engine.errors.join('\n'));
- gpuActive=true;startup?.stop();previewCanvas?.remove();document.body.dataset.backend='webgpu';document.body.dataset.ready='true';$('loading').classList.add('done');
+ gpuActive=true;$('quality').options[0].textContent='Auto · 60 FPS';startup?.stop();previewCanvas?.remove();document.body.dataset.backend='webgpu';document.body.dataset.ready='true';$('loading').classList.add('done');
  engine.onError=e=>{running=false;$('loading').classList.remove('done');$('status').textContent=String(e.message||e);};
  if(url.searchParams.has('test')){document.querySelector('details').open=true;$('validate').click();}
+ }
 }catch(e){
  if(startupFirst){$('resolution').textContent='CPU renderer';toast('GPU unavailable · continuing on CPU');document.body.dataset.backend='wasm';}
  else $('status').textContent=e.message+' Open in a recent Chrome or Edge browser with WebGPU enabled.';

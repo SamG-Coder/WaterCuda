@@ -15,6 +15,18 @@ try{
  const world=new WasmWorld(p,64,36,s=>console.log('Stage:',s));const C=new Float32Array([1850,25,1250,.15,-.30,3,1,-.7,22,1,0,1,1.5,1,0,0]),Origin=new Int32Array([0,0,884,0]);
  let result=world.frame(C,Origin);console.log('Cold full pipeline:',result.ms.toFixed(1),'ms',result.timings);const first=result.pixels;
  assert.ok(new Set(new Uint32Array(first.buffer)).size>200);result=world.frame(C,Origin);assert.deepEqual(result.pixels,first);console.log('Cached full pipeline:',result.ms.toFixed(1),'ms');
+
+ // CPU checkerboard shares Pixels across frames and invokes only one diagonal.
+ const sentinel=new Uint8Array(world.width*world.height*4);sentinel.fill(17);p.write(world.b.Pixels,sentinel);
+ const checked=world.frame(C,Origin,true),phase=checked.phase;
+ for(let y=0;y<world.height;y++)for(let x=0;x<world.width;x++){
+  const b=(y*world.width+x)*4;
+  assert.equal(p.module.HEAPU8[world.b.Pixels.ptr+b+3],((x+y)&1)===phase?255:17,'inactive checkerboard pixels must be retained');
+ }
+ const second=world.frame(C,Origin,true);assert.notEqual(second.phase,phase);
+ for(let i=3;i<second.pixels.length;i+=4)assert.equal(second.pixels[i],255);
+ C[3]+=.02;const moving=world.frame(C,Origin,true);assert.ok(moving.timings.checkerboardResolve>=0);C[3]-=.02;
+ world.frame(C,Origin);console.log('Checkerboard: alternating 2x2 diagonals, shared history, moving-view repair PASS');
  C[5]=4;assert.notDeepEqual(world.frame(C,Origin).pixels,first);
  const buffers=p.buffers.length;world.resize(160,90);result=world.frame(C,Origin);assert.equal(result.pixels.length,160*90*4);
  assert.equal(p.buffers.length,buffers);assert.equal(result.timings.cacheTerrain,undefined);assert.equal(result.timings.generateShrubAtlas,undefined);
