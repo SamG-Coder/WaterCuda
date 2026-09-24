@@ -6,6 +6,7 @@
 #include "../kernels/shrubs.cu"
 #include "terrain-reference.hpp"
 #include "../kernels/ocean.cu"
+#include "../kernels/ship.cu"
 #include "../kernels/render.cu"
 #include "shading-reference.hpp"
 #include "cpu-ocean.hpp"

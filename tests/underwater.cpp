@@ -5,6 +5,7 @@
 #include "../kernels/terrain-cache.cu"
 #include "../kernels/shrubs.cu"
 #include "../kernels/ocean.cu"
+#include "../kernels/ship.cu"
 #include "../kernels/render.cu"
 int main(){
  int styles[4]={},palettes[4]={},o[4]={0,0,884,0};float best=-1;float3 place={0,0,0};

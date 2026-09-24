@@ -8,6 +8,21 @@ export function moveCamera(camera,origin,keys,dt,speed,drifting=false){
  const forward=Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown'));
  const side=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'));
  const vertical=Number(keys.has('KeyE')||keys.has('Space'))-Number(keys.has('KeyQ'));
+ if(camera[14]===3){
+  camera[29]=camera[16];camera[30]=camera[17];camera[31]=camera[18];camera[26]=dt;
+  const immersed=Math.max(0,Math.min(1,-camera[17]/8));
+  const targetSpeed=forward*speed/(1+immersed*(2+speed*.035))*(keys.has('ShiftLeft')||keys.has('ShiftRight')?3:1)*(keys.has('KeyZ')?.2:1);
+  const response=1-Math.exp(-dt*(forward?1.8:1.15));camera[24]+=(targetSpeed-camera[24])*response;
+  camera[32]+=side*dt*.65;
+  const turn=Math.atan2(Math.sin(camera[32]-camera[19]),Math.cos(camera[32]-camera[19]));
+  camera[19]+=Math.max(-dt*.8,Math.min(dt*.8,turn*(1-Math.exp(-dt*4))));
+  const pitchTarget=Math.abs(camera[33])<.035?0:Math.max(-1,Math.min(1,camera[33]));camera[25]+=(pitchTarget-camera[25])*(1-Math.exp(-dt*3));
+  if(camera[34]>.5){const yawDelta=Math.atan2(Math.sin(camera[19]-camera[3]),Math.cos(camera[19]-camera[3]));camera[3]+=yawDelta*(1-Math.exp(-dt*3));camera[4]+=(camera[25]-.18-camera[4])*(1-Math.exp(-dt*3));}
+  const velocity=camera[24];
+  const step=velocity*dt;camera[16]+=Math.sin(camera[19])*Math.cos(camera[25])*step;camera[18]+=Math.cos(camera[19])*Math.cos(camera[25])*step;
+  camera[17]=Math.max(-110,Math.min(12000,camera[17]+Math.sin(camera[25])*step));
+  const distance=camera[23],pitch=camera[4];camera[0]=camera[16]-Math.sin(camera[3])*Math.cos(pitch)*distance;camera[1]=camera[17]+10-Math.sin(pitch)*distance;camera[2]=camera[18]-Math.cos(camera[3])*Math.cos(pitch)*distance;rebase(camera,origin);return;
+ }
  const v=flightVector(camera[3],camera[4],forward,side,vertical);
  const boost=keys.has('ShiftLeft')||keys.has('ShiftRight'),slow=keys.has('KeyZ');
  const step=speed*dt*(boost?5:1)*(slow?.2:1);for(let i=0;i<3;i++)camera[i]+=v[i]*step;
@@ -17,7 +32,7 @@ export function moveCamera(camera,origin,keys,dt,speed,drifting=false){
 export class FlightInput{
  constructor(canvas,camera,{onShortcut=()=>{},onSpeed=()=>{},onLock=()=>{}}={}){
   this.canvas=canvas;this.camera=camera;this.keys=new Set();this.drag=null;canvas.tabIndex=0;
-  const clear=()=>{this.keys.clear();this.drag=null;};
+  const clear=()=>{this.keys.clear();this.drag=null;camera[34]=0;};
   window.addEventListener('blur',clear);document.addEventListener('visibilitychange',()=>{if(document.hidden)clear();});
   document.addEventListener('focusin',e=>{if(isEditing(e.target))clear();});
   window.addEventListener('keydown',e=>{if(isEditing(e.target)||e.metaKey||e.altKey||e.ctrlKey)return;
@@ -27,16 +42,29 @@ export class FlightInput{
   window.addEventListener('keyup',e=>this.keys.delete(e.code));
   document.addEventListener('pointerlockchange',()=>{clear();onLock(document.pointerLockElement===canvas);});
   document.addEventListener('pointerlockerror',()=>onLock(false));
-  canvas.addEventListener('pointerdown',e=>{canvas.focus({preventScroll:true});if(document.pointerLockElement===canvas)return;this.drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId);});
-  canvas.addEventListener('pointerup',()=>this.drag=null);canvas.addEventListener('pointercancel',clear);canvas.addEventListener('lostpointercapture',()=>this.drag=null);
+  canvas.addEventListener('pointerdown',e=>{canvas.focus({preventScroll:true});if(document.pointerLockElement===canvas)return;this.drag={x:e.clientX,y:e.clientY,button:e.button};camera[34]=e.button===2?1:0;canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener('pointerup',()=>{this.drag=null;camera[34]=0;});canvas.addEventListener('pointercancel',clear);canvas.addEventListener('lostpointercapture',()=>this.drag=null);
   document.addEventListener('mousemove',e=>{
    let dx=0,dy=0;if(document.pointerLockElement===canvas){dx=e.movementX;dy=e.movementY;}
-   else if(this.drag){dx=e.clientX-this.drag.x;dy=e.clientY-this.drag.y;this.drag={x:e.clientX,y:e.clientY};}else return;
+   else if(this.drag){dx=e.clientX-this.drag.x;dy=e.clientY-this.drag.y;this.drag={x:e.clientX,y:e.clientY,button:this.drag.button};}else return;
+   if(camera[14]===3&&(document.pointerLockElement===canvas||this.drag?.button===2)){camera[34]=1;camera[32]+=dx*.0022;camera[33]=Math.max(-1,Math.min(1,camera[33]-dy*.0022));return;}
    camera[3]=(camera[3]+dx*.0022)%(Math.PI*2);camera[4]=Math.max(-1.54,Math.min(1.54,camera[4]-dy*.0022));
   });
   canvas.addEventListener('dblclick',()=>this.capture());canvas.addEventListener('contextmenu',e=>e.preventDefault());
   canvas.addEventListener('wheel',e=>{e.preventDefault();onSpeed(e.deltaY);},{passive:false});
  }
  capture(){this.canvas.focus({preventScroll:true});if(!this.canvas.requestPointerLock)return false;try{const request=this.canvas.requestPointerLock();request?.catch(()=>{});return true;}catch{return false;}}
- clear(){this.keys.clear();this.drag=null;}
+ clear(){this.keys.clear();this.drag=null;this.camera[34]=0;}
+}
+
+// V detaches at the current chase view; the ship remains where it was left.
+export function toggleHelm(camera){
+ if(camera[14]===3){camera[14]=4;camera[24]=0;}
+ else if(camera[14]===4){camera[14]=3;camera[3]=camera[19];camera[4]=camera[25]-.18;camera[32]=camera[19];camera[33]=camera[25];}
+}
+
+export function correctShip(camera,requested,pose){
+ if(camera[14]!==requested[14]||camera[14]<3)return;
+ for(const i of [16,17,18])camera[i]+=pose[i]-requested[i];
+ if(pose[24]===0&&requested[24]!==0)camera[24]=0;
 }

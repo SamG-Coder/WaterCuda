@@ -177,7 +177,7 @@ __device__ float4 traceSpecimen(float3 ro,float3 rd,const int* Origin,float limi
 __global__ void tracePrimary(const float* C,const int* Origin,const float* Waves,const float* Shrubs,float* Hit,float* Surface,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
  float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height);float cone=1.05f/(float)height;
- if(C[14]>.5f){
+ if((C[14]>.5f&&C[14]<2.5f)){
   float t=150,material=6;float3 n=make_float3(0,1,0);
   if(rd.y<-.0001f){float floorHit=(-10.12f-ro.y)/rd.y;if(floorHit>0&&floorHit<t){t=floorHit;material=8;}}
   float4 rock=coralEllipsoid(ro,rd,specimenRoot(Origin)+make_float3(0,-.1f,0),make_float3(.8f,.28f,.7f),make_float4(t,0,0,0));
@@ -186,7 +186,7 @@ __global__ void tracePrimary(const float* C,const int* Origin,const float* Waves
   Surface[b]=n.x;Surface[b+1]=n.y;Surface[b+2]=n.z;Surface[b+3]=0;return;
  }
  // Diving uses the same CUDA terrain, now including the connected ocean floor.
- if(ro.y<0){
+ if(C[14]>=3?C[28]>.5f:ro.y<0){
   float wt=-1;if(rd.y>.0001f){wt=-ro.y/rd.y;for(int k=0;k<4;k++){float3 q=ro+rd*wt;float4 wave=ocean(q.x,q.z,fmaxf(.12f,wt*cone),Waves,Origin);wt=fmaxf(.01f,(wave.x-ro.y)/rd.y);}}
   float limit=wt>0?fminf(150,wt):150,bt=traceReef(ro,rd,Origin,Shrubs,limit);
   float t=bt>0?bt:(wt>0&&wt<150?wt:150),material=bt>0?4:(wt>0&&wt<150?5:6),fp=fmaxf(.03f,t*cone);
@@ -205,15 +205,18 @@ __global__ void tracePrimary(const float* C,const int* Origin,const float* Waves
 __global__ void traceVegetation(const float* C,const int* Origin,const float* Shrubs,float* Hit,float* Surface,int width,int height){
  int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),y=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=width||y>=height)return;int b=(y*width+x)*4;
  float3 ro=make_float3(C[0],C[1],C[2]),rd=cameraRay(C,x,y,width,height);float cone=1.05f/(float)height;
- if(ro.y<0){
-  float4 coral=C[14]>.5f?traceSpecimen(ro,rd,Origin,Hit[b],C[14],cone):traceCorals(ro,rd,Shrubs,Hit[b],cone);
+ if(C[14]>=3?C[28]>.5f:ro.y<0){
+  float4 coral=(C[14]>.5f&&C[14]<2.5f)?traceSpecimen(ro,rd,Origin,Hit[b],C[14],cone):traceCorals(ro,rd,Shrubs,Hit[b],cone);
   if(coral.x<Hit[b]){
-   float3 p=ro+rd*coral.x;Hit[b]=coral.x;Hit[b+1]=7;Hit[b+2]=fmaxf(.002f,coral.x*cone);Hit[b+3]=C[14]>.5f?.12f:bedNoise(p.x,p.z,24,Origin,2121u);
+   float3 p=ro+rd*coral.x;Hit[b]=coral.x;Hit[b+1]=7;Hit[b+2]=fmaxf(.002f,coral.x*cone);Hit[b+3]=(C[14]>.5f&&C[14]<2.5f)?.12f:bedNoise(p.x,p.z,24,Origin,2121u);
    Surface[b]=coral.y;Surface[b+1]=coral.z;Surface[b+2]=coral.w;Surface[b+3]=0;
-  }return;
- }
+  }
+ }else{
  float4 shrub=traceShrubs(ro,rd,Origin,Shrubs,Hit[b],C[5],C[6],cone);
  if(shrub.x<Hit[b]){Hit[b]=shrub.x;Hit[b+1]=3;Hit[b+2]=fmaxf(.005f,shrub.x*cone);Hit[b+3]=0;Surface[b]=shrub.y;Surface[b+1]=shrub.z;Surface[b+2]=shrub.w;Surface[b+3]=0;}
+ }
+ ShipHit ship=traceShip(ro,rd,Origin,C[5],Hit[b],cone,C);
+ if(ship.part>0){Hit[b]=ship.t;Hit[b+1]=9;Hit[b+2]=fmaxf(.002f,ship.t*cone);Hit[b+3]=ship.part;Surface[b]=ship.nx;Surface[b+1]=ship.ny;Surface[b+2]=ship.nz;Surface[b+3]=0;}
 }
 // Trace each visible water pixel using its own normal; no half-resolution cells.
 __global__ void reflectOcean(const float* C,const int* Origin,const float* Shrubs,const float* Hit,const float* Surface,float* Reflection,int width,int height){
@@ -228,6 +231,8 @@ __global__ void reflectOcean(const float* C,const int* Origin,const float* Shrub
  land=wetSandSheen(land,p,ln,rr,sun,Origin,fp,shadow);land=aerialPerspective(land,ro,rr,rt,sun);reflected=mix3(land,reflected,smoothf(4800,6500,Hit[b]));}
  if(Hit[b]<180){float4 shrub=traceShrubs(ro,rr,Origin,Shrubs,rt>0?rt:6500,C[5],C[6],cone);
   if(shrub.x<(rt>0?rt:6500)){float3 p=ro+rr*shrub.x,ln=make_float3(shrub.y,shrub.z,shrub.w);reflected=aerialPerspective(shrubColor(p,ln,rr,sun,Origin,Shrubs,fmaxf(.005f,(Hit[b]+shrub.x)*cone)),ro,rr,shrub.x,sun);}}
+ ShipHit ship=traceShip(ro,rr,Origin,C[5],rt>0?rt:6500,fmaxf(cone,.004f),C);
+ if(ship.part>0){float3 p=ro+rr*ship.t,ln=make_float3(ship.nx,ship.ny,ship.nz);reflected=aerialPerspective(shipShade(p,ln,rr,sun,ship.part,fmaxf(.02f,(Hit[b]+ship.t)*cone),Origin,C[5],C),ro,rr,ship.t,sun);}
  Reflection[o]=reflected.x;Reflection[o+1]=reflected.y;Reflection[o+2]=reflected.z;Reflection[o+3]=Hit[b];
 }
 // Small same-frame reconstruction filter; no temporal history or extra ray queries.
@@ -396,13 +401,15 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,
   // plus a second specular light). Mip variance broadens unresolved sun glitter.
   color=color+sunRadiance(sun)*(waterSunLobe(n,rd,sun,Hit[b+3],C[6])*beamShadow);
   float foam=waterFoam(p,n,depth,fp,C[5],C[6],Origin);
+  if(C[14]>=3){float dx=p.x-C[16],dz=p.z-C[18],along=dx*sinf(C[19])+dz*cosf(C[19]),side=dx*cosf(C[19])-dz*sinf(C[19]);float spray=expf(-powf(fabsf(side)-5,2)*.09f-along*along*.002f);foam=fmaxf(foam,sat(spray*(Waves[1398121]*.3f+fabsf(C[24])*.018f)*(1-smoothf(2,10,fabsf(C[17])))));}
   float3 foamLight=make_float3(.18f,.23f,.26f)+sunRadiance(sun)*((.23f*sat(sun.y)+.04f)*beamShadow);
   color=mix3(color,foamLight,foam);
  }
- if(material>=4)color=underwaterShade(ro,rd,p,n,t,material,fp,sun,C[12]>0?C[12]:1,Origin,Waves,Shrubs,Hit[b+3],C[14]);
- else if(material>0)color=aerialPerspective(color,ro,rd,t,sun);
+ if(material==9){color=shipShade(p,n,rd,sun,Hit[b+3],fp,Origin,C[5],C);if(C[14]>=3?C[28]>.5f:ro.y<0)color=mix3(make_float3(.015f,.16f,.19f),color,expf(-t*.035f));}
+ if(material>=4&&material<=8)color=underwaterShade(ro,rd,p,n,t,material,fp,sun,C[12]>0?C[12]:1,Origin,Waves,Shrubs,Hit[b+3],C[14]<3?C[14]:0);
+ else if(material>0&&!(C[14]>=3?C[28]>.5f:ro.y<0))color=aerialPerspective(color,ro,rd,t,sun);
  // Dim ambient surface terms at night; direct sunlight already follows the sun.
- if(material>0&&C[14]<.5f){
+ if(material>0&&(C[14]<.5f||C[14]>=3)){
   float day=smoothf(-.18f,.06f,sun.y);color=color*lerpf(.025f,1,day);
   if(day<1){
   float3 moon=make_float3(-sun.x,-sun.y,-sun.z);
@@ -414,7 +421,7 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,
  }
  // Local weather changes with world position; rain is composited only in front
  // of the already-known visible hit. Impacts reuse that hit, never trace collisions.
- if(C[15]>=0&&C[14]<.5f){
+ if(C[15]>=0&&(C[14]<.5f||C[14]>=3)){
   float4 local=weatherAt(ro.x,ro.z,C[5],C[15],Origin);
   if(material>0&&material<4){
    float4 w=weatherAt(p.x,p.z,C[5],C[15],Origin);
@@ -428,11 +435,23 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,
    if((material==1||material==2)&&t<160&&n.y>.4f){float impact=rainImpact(p,fp,C[5],w.y,Origin);color=color+make_float3(.055f,.070f,.085f)*impact;}
    float fog=1-expf(-t*local.y*.00028f);color=mix3(color,make_float3(.17f,.22f,.28f)*lerpf(.015f,1,smoothf(-.18f,.06f,sun.y)),fog);
   }
-  if(ro.y>=0){
+  if(C[14]>=3?C[28]<.5f:ro.y>=0){
    float drops=rainVisibility(ro,rd,t,1.05f/(float)height,C[5],local.y,Origin);
    color=mix3(color,make_float3(.55f,.65f,.75f)*lerpf(.025f,1,smoothf(-.18f,.06f,sun.y)),drops);
    float flash=weatherFlash(ro.x,ro.z,C[5],local.z,Origin);color=color+make_float3(.35f,.40f,.52f)*flash;if(material==0)color=color+weatherBolt(ro,rd,C[5],local.z,Origin);
   }else if(material>=4)color=color*(1-local.x*.18f-local.z*.25f);
+ }
+ // Bounded spray volume: water-entry impulse lifts a broken white curtain.
+ if(C[14]>=3&&Waves[1398121]>.15f&&C[28]<.5f){
+  float strength=Waves[1398121],sprayHeight=fminf(24,3+strength*2),alpha=0;
+  float3 centre=make_float3(C[16],0,C[18]);float2 bounds=boxRay(ro-centre,rd,make_float3(-24,0,-32),make_float3(24,sprayHeight,32));
+  float begin=fmaxf(.02f,bounds.x),end=fminf(t,bounds.y);
+  if(end>begin)for(int k=0;k<12;k++){float at=lerpf(begin,end,((float)k+.5f)/12);float3 q=ro+rd*at-centre;
+   float side=q.x*cosf(C[19])-q.z*sinf(C[19]),along=q.x*sinf(C[19])+q.z*cosf(C[19]);
+   float radius=5+q.y*.35f,curtain=expf(-powf(fabsf(side)-radius,2)*.6f-along*along*.0025f)*(1-smoothf(sprayHeight*.4f,sprayHeight,q.y));
+   float drops=smoothf(.43f,.72f,noise2(q.x*4+q.z*2,q.y*6-C[5]*15));alpha+=curtain*drops*(end-begin)/12*.17f*sat(strength*.3f);
+  }
+  color=mix3(color,make_float3(.45f,.57f,.62f)*( .35f+.65f*sat(sun.y)),1-expf(-alpha));
  }
  if(C[10]==1&&material>0){float level=log2f(fmaxf(1,fp));color=mix3(make_float3(.1f,.8f,.6f),make_float3(.9f,.25f,.12f),sat(level/6));}
  if(C[10]==2&&material>0)color=(n+make_float3(1,1,1))*.5f;
@@ -441,4 +460,74 @@ __global__ void shadeOcean(const float* C,const int* Origin,const float* Shrubs,
 __global__ void probeWorld(const float* Points,const int* Origin,const float* Waves,float* Result,int count){
  int i=(int)(blockIdx.x*blockDim.x+threadIdx.x);if(i>=count)return;int b=i*4;
  float x=Points[b],z=Points[b+1],fp=Points[b+2];Result[b]=ground(x,z,Origin,fp);float4 w=ocean(x,z,fp,Waves,Origin);Result[b+1]=w.x;Result[b+2]=w.y;Result[b+3]=w.w;
+}
+
+// Persistent local wave equation: two 128x128 height/velocity banks, 2m spacing.
+// Each invocation reads only the old bank, avoiding inter-workgroup races.
+__global__ void stepShipWater(const float* C,float* Waves){
+ int x=(int)(blockIdx.x*blockDim.x+threadIdx.x),z=(int)(blockIdx.y*blockDim.y+threadIdx.y);if(x>=128||z>=128)return;
+ int bank=(int)Waves[1398107],old=1-bank,ox=x+(int)Waves[1398110],oz=z+(int)Waves[1398111];float dt=Waves[1398112],h=0,v=0,lap=0;
+ if(Waves[1398116]<.5f){h=wakeCell(Waves,old,ox,oz,0);v=wakeCell(Waves,old,ox,oz,1);lap=(wakeCell(Waves,old,ox+1,oz,0)+wakeCell(Waves,old,ox-1,oz,0)+wakeCell(Waves,old,ox,oz+1,0)+wakeCell(Waves,old,ox,oz-1,0)-4*h)*.25f;}
+ float px=Waves[1398108]+(float)x*2-C[16],pz=Waves[1398109]+(float)z*2-C[18],sx=sinf(C[19]),sz=cosf(C[19]);
+ float side=px*sz-pz*sx,along=px*sx+pz*sz;
+ float mask=expf(-side*side*.10f-along*along*.004f),contact=1-smoothf(2,9,fabsf(C[17]));
+ float target=-(2.4f+fminf(2,fabsf(C[24])*.04f))*mask*contact;
+ float ring=expf(-powf(fabsf(side)-5,2)*.22f-along*along*.003f);
+ v+=Waves[1398121]*(ring-mask*.7f)*dt*18;
+ v=(v+(64*lap+(target-h)*mask*contact*18)*dt)*expf(-dt*.65f);
+ h=clampf(h+v*dt,-5,6);float edge=smoothf(0,10,(float)x)*smoothf(0,10,(float)z)*(1-smoothf(117,127,(float)x))*(1-smoothf(117,127,(float)z));
+ int i=1398144+bank*32768+(z*128+x)*2;Waves[i]=h*edge;Waves[i+1]=clampf(v,-24,24)*edge;
+}
+// Conservative samples across the rotated hull's keel and lower sides.
+__device__ float shipTerrainFloor(float x,float z,const float* C,const int* Origin){
+ float floorHeight=-10000;
+ for(int iz=0;iz<11;iz++){float along=-18+(float)iz*3.8f;
+  for(int side=-1;side<=1;side++){float3 q=shipRotate(make_float3((float)side*shipBeam(along)*.9f,-3.3f+.10f*fabsf(along),along),C[5],-1,C);
+   floorHeight=fmaxf(floorHeight,ground(x+q.x,z+q.z,Origin,.5f)-q.y+.3f);
+  }
+ }return floorHeight;
+}
+// One invocation per frame, after the ocean FFT. No wave readback or per-pixel buoyancy.
+// C[16..19]: ship x / clearance above water / z / heading.
+// C[20..22]: wave roll / pitch / height. C[23]: chase distance. C[14]==3 enables helm.
+__global__ void updateShip(float* C,const int* Origin,float* Waves){
+ Waves[1398099]=0;
+ if(C[14]<3)return;
+ float x=C[16],z=C[18],yaw=C[19],sx=sinf(yaw),sz=cosf(yaw);
+ float front=ocean(x+sx*13,z+sz*13,4,Waves,Origin).x,back=ocean(x-sx*13,z-sz*13,4,Waves,Origin).x;
+ float left=ocean(x-sz*3.8f,z+sx*3.8f,4,Waves,Origin).x,right=ocean(x+sz*3.8f,z-sx*3.8f,4,Waves,Origin).x;
+ float wet=1-smoothf(0,5,fabsf(C[17]));
+ C[20]=clampf((right-left)/7.6f,-.18f,.18f)*wet;
+ C[21]=clampf((back-front)/26,-.15f,.15f)*wet-C[25];
+ float waveHeight=(front+back+left+right)*.25f*wet;
+ float response=1-expf(-clampf(C[5]-Waves[1398113],0,.1f)*3);
+ if(Waves[1398106]>.5f&&C[5]>=Waves[1398113]){waveHeight=lerpf(Waves[1398122],waveHeight,response)*wet;C[20]=lerpf(Waves[1398123],C[20],response)*wet;}
+ Waves[1398122]=waveHeight;Waves[1398123]=C[20];C[22]=waveHeight+C[17];
+ // Sweep in short intervals, then clamp descent to the supporting seabed.
+ float waveOffset=C[22]-C[17],startX=C[26]>0?C[29]:x,startZ=C[26]>0?C[31]:z,startY=C[26]>0?C[30]+waveOffset:C[22];
+ float mx=x-startX,mz=z-startZ,length=sqrtf(mx*mx+mz*mz);int steps=(int)clampf(ceilf(length/2),1,128);
+ float travel=fminf(1,256/fmaxf(1,length));float safeX=startX,safeZ=startZ;
+ for(int step=1;step<=128;step++){if(step>steps)break;float f=(float)step/(float)steps*travel,tx=startX+mx*f,tz=startZ+mz*f,ty=lerpf(startY,C[22],f);
+  float floorHeight=shipTerrainFloor(tx,tz,C,Origin);
+  if(length>.01f&&floorHeight>ty+.15f){C[24]=0;break;}safeX=tx;safeZ=tz;
+ }
+ x=safeX;z=safeZ;C[16]=x;C[18]=z;C[22]=fmaxf(C[22],shipTerrainFloor(x,z,C,Origin));C[17]=C[22]-waveOffset;
+ // Camera follows the water height but stays level while the hull rolls.
+ Waves[1398099]=1;Waves[1398100]=x;Waves[1398101]=z;Waves[1398102]=yaw;Waves[1398103]=C[24];Waves[1398104]=C[17];Waves[1398105]=C[5];
+ if(C[14]==3){
+ float distance=fmaxf(40,C[23]);C[4]=clampf(C[4],-1.1f,1.1f);
+ C[0]=x-sinf(C[3])*cosf(C[4])*distance;
+ C[1]=C[22]+10-sinf(C[4])*distance;
+ C[2]=z-cosf(C[3])*cosf(C[4])*distance;
+ }
+ C[28]=C[1]<ocean(C[0],C[2],1,Waves,Origin).x?1:0;
+ float bx=floorf(x/2)*2-128,bz=floorf(z/2)*2-128;
+ float dx=(bx-Waves[1398108]+((float)Origin[0]-Waves[1398114])*CELL)/2,dz=(bz-Waves[1398109]+((float)Origin[1]-Waves[1398115])*CELL)/2;
+ float reset=Waves[1398106]<.5f||C[5]<Waves[1398113]||fabsf(dx)>100||fabsf(dz)>100||Waves[1398117]!=(float)Origin[2]?1:0;
+ float impactDt=clampf(C[5]-Waves[1398113],.001f,.1f),contact=1-smoothf(0,5,C[17]);
+ float entry=reset>.5f?0:fmaxf(0,contact-Waves[1398120])/impactDt;
+ Waves[1398121]=fmaxf(reset>.5f?0:Waves[1398121]*expf(-impactDt*2.8f),clampf(entry*.7f,0,12));Waves[1398120]=contact;
+ Waves[1398112]=clampf(C[5]-Waves[1398113],0,.04f);Waves[1398113]=C[5];Waves[1398116]=reset;
+ Waves[1398110]=dx;Waves[1398111]=dz;Waves[1398114]=(float)Origin[0];Waves[1398115]=(float)Origin[1];Waves[1398117]=(float)Origin[2];
+ Waves[1398108]=bx;Waves[1398109]=bz;Waves[1398107]=1-Waves[1398107];Waves[1398106]=1;
 }

@@ -6,7 +6,7 @@ export function rebase(camera,origin){
   if(!shift)continue;
   const slot=axis===0?0:1,next=origin[slot]+shift;
   if(next < -2147480000 || next > 2147480000)throw Error('World coordinate limit reached.');
-  camera[axis]-=shift*CELL;origin[slot]=next;
+  camera[axis]-=shift*CELL;if(camera[14]>=3){camera[axis+16]-=shift*CELL;camera[axis+29]-=shift*CELL;}origin[slot]=next;
  }
 }
 export function parseSeed(value){const n=Number(value);if(!Number.isInteger(n)||n<0||n>2147483647)throw Error('Use a whole-number seed between 0 and 2147483647.');return n;}

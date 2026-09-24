@@ -7,6 +7,7 @@
 #include "../kernels/shrubs.cu"
 #include "shrub-atlas.hpp"
 #include "../kernels/ocean.cu"
+#include "../kernels/ship.cu"
 #include "../kernels/render.cu"
 #include "cpu-ocean.hpp"
 int main(int argc,char**argv){try{

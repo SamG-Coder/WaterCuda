@@ -4,7 +4,7 @@ const abi=JSON.parse(await readFile(new URL('./generated/world.abi.json',import.
 const module=await create({wasmBinary:await readFile(new URL('./generated/world.wasm',import.meta.url))});
 const threads=Number(process.argv[2]||4),p=new ThreadedProgram(module,abi,threads);
 try{
- assert.equal(abi.kernels.length,17);assert.ok(abi.kernels.find(k=>k.entry==='oceanFft').cooperative);
+ assert.equal(abi.kernels.length,19);assert.ok(abi.kernels.find(k=>k.entry==='oceanFft').cooperative);
  const Input=p.alloc(256*256*4*8),Output=p.alloc(Input.bytes),Back=p.alloc(Input.bytes),data=new Float32Array(Input.bytes/4);
  // An origin impulse has a constant 2D inverse transform, with a different
  // amplitude per layer. This exercises every FFT barrier and both axes.
@@ -31,6 +31,11 @@ try{
  // Underwater and specimen modes exercise reef caching and coral/shrub tracing.
  C.set([4377,-7,2784,0,-.12]);result=world.frame(C,Origin);assert.ok(result.pixels.some(x=>x>0));assert.ok(result.timings.cacheReef>0);console.log('Underwater full pipeline:',result.ms.toFixed(1),'ms');
  C[14]=1;assert.notDeepEqual(world.frame(C,Origin).pixels,result.pixels);
- console.log('PASS all 17 kernels compiled; FFT, full renderer determinism, animation, underwater reef and coral specimen executed.');
+ C.set([682,16,612,-.70,-.035]);C[14]=0;C[15]=1;result=world.frame(C,Origin);
+ const shipHits=new Float32Array(p.read(world.b.Hit).buffer);let visibleShip=0;for(let i=1;i<64*36*4;i+=4)if(shipHits[i]===9)visibleShip++;assert.ok(visibleShip>50,'Ship must be visible through the full WASM pipeline');console.log('Procedural ship WASM hits:',visibleShip);
+ const helm=new Float32Array(32);helm.set(C);helm[14]=3;helm.set([650,0,650,0,0,0,0,64],16);helm[3]=-.6;helm[4]=-.25;
+ world.frame(helm,Origin);const afloat=new Float32Array(p.read(world.b.C).buffer);assert.ok(afloat[1]>20);assert.ok(Math.abs(afloat[22])<10);
+ helm[17]=50;world.frame(helm,Origin);const air=new Float32Array(p.read(world.b.C).buffer);assert.equal(air[22],50);assert.ok(Math.abs(air[20])<1e-6);assert.ok(Math.abs(air[21])<1e-6);console.log('WASM helm buoyancy and flight PASS');
+ console.log('PASS all 19 kernels compiled; FFT, full renderer determinism, animation, underwater reef and coral specimen executed.');
  p.dispose();process.exit(0);
 }catch(e){console.error(e);p.dispose();process.exit(1);}

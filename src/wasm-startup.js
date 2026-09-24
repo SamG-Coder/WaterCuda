@@ -1,3 +1,4 @@
+import {correctShip} from './flight.js';
 import {CpuResolution} from './cpu-resolution.js';
 export class WasmStartup{
  constructor(canvas,{onFrame,onError}){
@@ -12,6 +13,7 @@ export class WasmStartup{
    if(data.type==='ready'){this.ready=true;return;}
    if(data.type==='error'){this.fail(data.message);return;}
    if(data.type!=='frame')return;
+   if(data.shipPose&&this.camera)correctShip(this.camera,this.requested,data.shipPose);
    this.busy=false;canvas.width=data.width;canvas.height=data.height;
    this.context.putImageData(new ImageData(new Uint8ClampedArray(data.pixels),data.width,data.height),0,0);
    this.resolution.observe(data.ms);
@@ -30,7 +32,7 @@ export class WasmStartup{
  }
  frame(camera,origin){
   if(!this.ready||this.busy||this.stopped)return;
-  this.busy=true;this.worker.postMessage({type:'frame',camera:camera.slice(),origin:origin.slice(),...this.resolution.size(innerWidth,innerHeight)});
+  this.camera=camera;this.requested=camera.slice();this.busy=true;this.worker.postMessage({type:'frame',camera:camera.slice(),origin:origin.slice(),...this.resolution.size(innerWidth,innerHeight)});
  }
  fail(message){this.resolveFirst(false);this.onError(message);this.stop();}
  capture(){return this.presenter?.last&&!this.presenter.lost&&!this.presenter.stopped?this.presenter.capture():new Promise(resolve=>this.canvas.toBlob(resolve));}

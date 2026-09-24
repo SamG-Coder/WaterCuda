@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {flightVector,moveCamera,isEditing} from '../src/flight.js';
+import {flightVector,moveCamera,isEditing,toggleHelm} from '../src/flight.js';
 test('forward flight follows both yaw and pitch',()=>{
  const v=flightVector(Math.PI/2,Math.PI/4,1,0,0);
  assert.ok(Math.abs(v[0]-Math.SQRT1_2)<1e-9);assert.ok(Math.abs(v[1]-Math.SQRT1_2)<1e-9);assert.ok(Math.abs(v[2])<1e-9);
@@ -21,4 +21,22 @@ test('movement is stable across frame rates and origin boundaries',()=>{
 test('both shift keys boost and releasing keys stops immediately',()=>{
  const c=new Float32Array([0,100,0,0,0,0,1]),o=new Int32Array(4);moveCamera(c,o,new Set(['KeyW','ShiftRight']),1,10);assert.equal(c[2],50);
  const snapshot=Array.from(c);moveCamera(c,o,new Set(),1,10);assert.deepEqual(Array.from(c),snapshot);
+});
+
+test('ship accelerates smoothly, orbit is independent, steering turns gradually and release coasts',()=>{
+ const c=new Float32Array(40),o=new Int32Array(4);c[14]=3;c[16]=c[18]=650;c[23]=100;c[4]=-.18;
+ moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[24]>0&&c[24]<1);assert.equal(c[17],0);
+ for(let i=0;i<60;i++)moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[24]>20);
+ const heading=c[19];c[3]=2;c[4]=-.8;moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.equal(c[19],heading);assert.equal(c[25],0);assert.equal(c[23],100);
+ c[32]=1;c[33]=.3;moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[19]>0&&c[19]<.02);assert.ok(c[25]>0&&c[25]<.03);
+ const velocity=c[24];moveCamera(c,o,new Set(),1/60,25);assert.ok(c[24]>0&&c[24]<velocity);
+});
+test('underwater ship drag slows forward motion and V preserves parked ship while free flying',()=>{
+ const a=new Float32Array(40),b=new Float32Array(40),oa=new Int32Array(4),ob=new Int32Array(4);for(const c of [a,b]){c[14]=3;c[16]=650;c[18]=650;c[23]=64;}a[17]=20;b[17]=-20;
+ moveCamera(a,oa,new Set(['KeyW']),1,40);moveCamera(b,ob,new Set(['KeyW']),1,40);assert.ok(a[24]>b[24]*3);
+ const ship=b.slice(16,19);toggleHelm(b);assert.equal(b[14],4);moveCamera(b,ob,new Set(['KeyW']),.1,40);assert.deepEqual(b.slice(16,19),ship);toggleHelm(b);assert.equal(b[14],3);
+});
+
+test('neutral W and tiny mouse noise do not create lift',()=>{
+ for(const pitch of [0,.02,-.02]){const c=new Float32Array(40),o=new Int32Array(4);c[14]=3;c[16]=c[18]=650;c[23]=64;c[33]=pitch;for(let i=0;i<120;i++)moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.equal(c[17],0);assert.equal(c[25],0);}
 });

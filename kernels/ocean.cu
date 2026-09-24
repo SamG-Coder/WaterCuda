@@ -65,6 +65,24 @@ __device__ float4 oceanSample(float u,float v,int layer,int level,const float* W
  float dz=lerpf(lerpf(Waves[a+2],Waves[b+2],fx),lerpf(Waves[c+2],Waves[d+2],fx),fz);
  float e=lerpf(lerpf(Waves[a+3],Waves[b+3],fx),lerpf(Waves[c+3],Waves[d+3],fx),fz);return make_float4(h,dx,dz,e);
 }
+// Local hull displacement and Kelvin-style wake compose with the spectral surface.
+// Keeping this local avoids repeating a ship disturbance across the periodic FFT tiles.
+__device__ float shipWakeHeight(float side,float along,float speed,float time){
+ float behind=fmaxf(0,-along),reach=clampf(speed*4,35,260),tail=(1-smoothf(reach*.65f,reach,behind))*smoothf(-4,6,behind);
+ float arm=fabsf(side)-behind*.35f,band=expf(-arm*arm/(2+behind*.12f));
+ float ripples=sinf(behind*.65f-time*3)*expf(-fabsf(side)/(3+behind*.16f));
+ float hull=-.55f*expf(-side*side*.1f-along*along*.007f);
+ float bow=.7f*expf(-side*side*.06f-(along-18)*(along-18)*.12f);
+ return (hull+bow+tail*(band*.45f+ripples*.14f))*smoothf(0,12,speed)*clampf(speed/20,.2f,2);
+}
+__device__ float wakeCell(const float* Waves,int bank,int x,int z,int component){
+ if(x<0||z<0||x>=128||z>=128)return 0;
+ return Waves[1398144+bank*32768+(z*128+x)*2+component];
+}
+__device__ float wakeSurface(float x,float z,const float* Waves){
+ float u=(x-Waves[1398108])/2,v=(z-Waves[1398109])/2;int ix=(int)floorf(u),iz=(int)floorf(v),bank=(int)Waves[1398107];
+ return lerpf(lerpf(wakeCell(Waves,bank,ix,iz,0),wakeCell(Waves,bank,ix+1,iz,0),fractf(u)),lerpf(wakeCell(Waves,bank,ix,iz+1,0),wakeCell(Waves,bank,ix+1,iz+1,0),fractf(u)),fractf(v));
+}
 __device__ float4 ocean(float x,float z,float fp,const float* Waves,const int* Origin){
  float h=0,dx=0,dz=0,variance=0;
  for(int layer=0;layer<4;layer++){
@@ -76,7 +94,23 @@ __device__ float4 ocean(float x,float z,float fp,const float* Waves,const int* O
   variance+=fmaxf(0,lerpf(a.w,b.w,blend)-sx*sx-sz*sz);
  }
  float gain=Waves[1398097]>.5f?weatherWaveGain(x,z,Waves[1398096],Waves[1398098],Origin):1;
- return make_float4(h*gain,dx*gain,dz*gain,variance*gain*gain);
+ h*=gain;dx*=gain;dz*=gain;variance*=gain*gain;
+ if(Waves[1398099]>.5f){
+  float speed=fabsf(Waves[1398103]),wet=1-smoothf(1,6,fabsf(Waves[1398104]));
+  float px=x-Waves[1398100],pz=z-Waves[1398101];
+  if(speed>.05f&&wet>0&&fabsf(px)<300&&fabsf(pz)<300){
+   float yaw=Waves[1398102],sx=sinf(yaw),sz=cosf(yaw),direction=Waves[1398103]<0?-1.0f:1.0f;
+   float side=px*sz-pz*sx,along=(px*sx+pz*sz)*direction,time=Waves[1398105];
+   float amount=wet*weight(fp,.15f),e=.25f,w=shipWakeHeight(side,along,speed,time);
+   float ds=(shipWakeHeight(side+e,along,speed,time)-shipWakeHeight(side-e,along,speed,time))/(2*e),dl=(shipWakeHeight(side,along+e,speed,time)-shipWakeHeight(side,along-e,speed,time))/(2*e);
+   h+=w*amount;dx+=(ds*sz+dl*sx*direction)*amount;dz+=(-ds*sx+dl*sz*direction)*amount;variance+=(ds*ds+dl*dl)*amount*.12f;
+  }
+ }
+ if(Waves[1398099]>.5f&&Waves[1398106]>.5f){
+  float localX=x-Waves[1398108],localZ=z-Waves[1398109];
+  if(localX>2&&localZ>2&&localX<252&&localZ<252){float fade=weight(fp,.12f);h+=wakeSurface(x,z,Waves)*fade;dx+=(wakeSurface(x+1,z,Waves)-wakeSurface(x-1,z,Waves))*.5f*fade;dz+=(wakeSurface(x,z+1,Waves)-wakeSurface(x,z-1,Waves))*.5f*fade;}
+ }
+ return make_float4(h,dx,dz,variance);
 }
 __device__ float waterHit(float3 ro,float3 rd,float cone,float wind,const float* Waves,const int* Origin){
  if(rd.y>=-0.00001f)return -1;float t=-ro.y/rd.y;if(t>FAR)return -1;

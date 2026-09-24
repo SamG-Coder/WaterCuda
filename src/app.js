@@ -1,18 +1,18 @@
 import {Engine} from './engine.js';
 import {applySeaLook} from './sea-looks.js';
 import {rebase,parseSeed,renderSize} from './world.js';
-import {FlightInput,moveCamera} from './flight.js';
+import {FlightInput,moveCamera,toggleHelm} from './flight.js';
 import {WasmStartup} from './wasm-startup.js';
 const $=id=>document.getElementById(id),canvas=$('view');
-const camera=new Float32Array([340,160,100,-0.05,-0.10,0,1,-0.7,0.7,1,0,1,1.5,1,0,0]);
+const camera=new Float32Array([340,160,100,-0.05,-0.10,0,1,-0.7,0.7,1,0,1,1.5,1,0,0,...new Array(24).fill(0)]);
 const origin=new Int32Array([0,0,42,0]);
 let engine,paused=false,drifting=false,speed=60,resizing=true,running=false,last=performance.now(),frames=0,lastStats=last,autoWidth=960,lastAdapt=0;
 let toastTimer;
 let startup,previewCanvas,gpuActive=false,startupFirst=false;
 function toast(message){$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),3500);}
 function preset(name){
- const views={coast:[1250,210,650,0.52,-0.10],aerial:[-300,1400,-300,0.70,-0.34],water:[1550,7,1100,0.52,0.025],shore:[1850,25,1250,0.15,-0.30],scrub:[2810.9,11.51,1131.74,0,-.20],bars:[3370,42,2770,-1.4,-.23],reef:[4377,-7,2784,0,-.12],coral:[4377,-7.3,2810.8,0,-.18],family:[4377,-6.5,2805,0,-.23]};
- const v=views[name];camera.set(v);camera[14]=name==='family'?2:(name==='coral'?1:0);if(camera[14]>0)speed=2;origin[0]=0;origin[1]=0;rebase(camera,origin);input.clear();drifting=false;$('sail').innerHTML='Begin drift <span>→</span>';
+ const views={ship:[682,16,612,-.70,-.035],coast:[1250,210,650,0.52,-0.10],aerial:[-300,1400,-300,0.70,-0.34],water:[1550,7,1100,0.52,0.025],shore:[1850,25,1250,0.15,-0.30],scrub:[2810.9,11.51,1131.74,0,-.20],bars:[3370,42,2770,-1.4,-.23],reef:[4377,-7,2784,0,-.12],coral:[4377,-7.3,2810.8,0,-.18],family:[4377,-6.5,2805,0,-.23]};
+ const v=views[name];camera.set(v);camera[14]=name==='ship'?3:(name==='family'?2:(name==='coral'?1:0));if(name==='ship'){camera.set([650,0,650,0,0,0,0,100],16);camera[3]=-.6;camera[4]=-.18;camera[19]=camera[3];camera[32]=camera[19];camera[33]=camera[34]=0;speed=25;}else if(camera[14]>0)speed=2;origin[0]=0;origin[1]=0;rebase(camera,origin);input.clear();drifting=false;$('sail').innerHTML='Begin drift <span>→</span>';
  document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('selected',b.dataset.view===name));
 }
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>preset(b.dataset.view));
@@ -40,7 +40,7 @@ $('sail').onclick=()=>{drifting=!drifting;$('sail').innerHTML=drifting?'Stop dri
 function toggleUI(){const clean=document.body.classList.toggle('clean');$('restore').hidden=!clean;}
 $('hide').onclick=toggleUI;$('restore').onclick=toggleUI;
 const input=new FlightInput(canvas,camera,{
- onShortcut:code=>{if(code==='KeyH')toggleUI();if(code==='KeyF')input.capture();if(code==='Digit1')preset('coast');if(code==='Digit2')preset('aerial');if(code==='Digit3')preset('water');if(code==='Digit4')preset('shore');if(code==='Digit7')preset('reef');if(code==='Digit8')preset('coral');},
+ onShortcut:code=>{if(code==='KeyV'){toggleHelm(camera);toast(camera[14]===4?'Free flight � V to return to ship':'Ship controls');}if(code==='KeyB')preset('ship');if(code==='KeyH')toggleUI();if(code==='KeyF')input.capture();if(code==='Digit1')preset('coast');if(code==='Digit2')preset('aerial');if(code==='Digit3')preset('water');if(code==='Digit4')preset('shore');if(code==='Digit7')preset('reef');if(code==='Digit8')preset('coral');},
  onSpeed:delta=>{speed=Math.max(3,speed*Math.exp(-delta*.001));toast('Flight speed · '+Math.round(speed)+' m/s');},
  onLock:locked=>{$('fly').textContent=locked?'Flying · Esc to release':'Free camera · F';document.body.classList.toggle('exploring',locked);$('flightStatus').textContent=locked?'MOUSE LOOK · ESC TO RELEASE':'DRAG TO LOOK · F FOR MOUSE LOOK';}
 });
@@ -48,7 +48,7 @@ $('fly').onclick=()=>{if(!input.capture())toast('Mouse capture unavailable here.
 $('capture').onclick=async()=>{if(!gpuActive&&!startupFirst)return;try{const blob=gpuActive?await engine.capture():await startup.capture();const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='WaterCuda-'+origin[2]+'.png';a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);toast('Image saved');}catch(e){toast(e.message);}};
 $('validate').onclick=async()=>{if(!engine)return;$('validate').disabled=true;$('checks').textContent='Running actual GPU fixtures…';try{const result=await engine.validate();$('checks').textContent=result.checks.map(([name,ok])=>(ok?'PASS':'FAIL')+'  '+name).join('\n');document.body.dataset.gpuTests=result.checks.every(([,ok])=>ok)?'passed':'failed';window.gpuValidation=result;}catch(e){$('checks').textContent=e.stack;document.body.dataset.gpuTests='failed';}finally{$('validate').disabled=false;}};
 function advance(dt){
- moveCamera(camera,origin,input.keys,dt,speed,drifting);if(input.keys.size||input.drag)document.body.classList.add('exploring');if(!paused)camera[5]+=dt;
+ if(!(paused&&camera[14]===3))moveCamera(camera,origin,input.keys,dt,speed,drifting);if(input.keys.size||input.drag)document.body.classList.add('exploring');if(!paused)camera[5]+=dt;
 }
 async function loop(now){
  if(!running)return;
@@ -80,7 +80,7 @@ try{
  window.waterCuda={get engine(){return engine;},camera,origin,preset,setLook,setRenderLoop(on){if(on&&!running){running=true;last=performance.now();requestAnimationFrame(loop);}else if(!on)running=false;}};
  setLook(['coastal','golden','swell'].includes(url.searchParams.get('look'))?url.searchParams.get('look'):'coastal');
  if(url.searchParams.get('clock')!=='manual'){const hour=Number(url.searchParams.get('hour')??12);selectHour(Number.isFinite(hour)?hour:12);}else $('daycycle').checked=false;
- preset(['coast','aerial','water','shore','scrub','bars','reef','coral','family'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'coast');
+ preset(['coast','aerial','water','shore','scrub','bars','reef','coral','family','ship'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'coast');
  if(crossOriginIsolated && typeof SharedArrayBuffer!=='undefined' && url.searchParams.get('startup')!=='gpu'){
   previewCanvas=document.createElement('canvas');previewCanvas.id='startup-preview';previewCanvas.setAttribute('aria-hidden','true');canvas.after(previewCanvas);
   startup=new WasmStartup(previewCanvas,{

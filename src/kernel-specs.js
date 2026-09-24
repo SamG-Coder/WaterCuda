@@ -1,4 +1,4 @@
-export const UNITS=['common','weather','terrain','terrain-cache','shrubs','ocean','render'];
+export const UNITS=['common','weather','terrain','terrain-cache','shrubs','ocean','ship','render'];
 export const SPECS=[
  {entry:'cacheTerrain',file:'terrain-cache',workgroupSize:[8,8,1],dependencies:['common','terrain','terrain-cache']},
  {entry:'mipTerrain',file:'terrain-cache',workgroupSize:[8,8,1],dependencies:['common','terrain','terrain-cache']},
@@ -12,6 +12,8 @@ export const SPECS=[
  {entry:'packOcean',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','weather','ocean']},
  {entry:'oceanMip',file:'ocean',workgroupSize:[8,8,1],dependencies:['common','weather','ocean']},
  {entry:'cacheReef',file:'render',workgroupSize:[8,8,1],dependencies:UNITS},
+ {entry:'stepShipWater',file:'render',workgroupSize:[8,8,1],dependencies:UNITS},
+ {entry:'updateShip',file:'render',workgroupSize:[1,1,1],dependencies:UNITS},
  {entry:'tracePrimary',file:'render',workgroupSize:[8,8,1],dependencies:UNITS},
  {entry:'traceVegetation',file:'render',workgroupSize:[8,8,1],dependencies:UNITS},
  {entry:'reflectOcean',file:'render',workgroupSize:[8,8,1],dependencies:UNITS},

@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 struct Scene {
- std::array<float,16> camera{1250,210,650,.52f,-.10f,3,1,-.7f,22,1,0,1,1.5f,1,0,0};
+ std::array<float,40> camera{1250,210,650,.52f,-.10f,3,1,-.7f,22,1,0,1,1.5f,1,0,0};
  std::array<int,4> origin{0,0,884,0};
  void preset(const std::string& name);
  void rebase();
@@ -16,7 +16,7 @@ public:
  Renderer();~Renderer();
  Renderer(const Renderer&)=delete;Renderer& operator=(const Renderer&)=delete;
  void resize(int width,int height);
- const std::vector<std::uint32_t>& render(const Scene& scene);
+ const std::vector<std::uint32_t>& render(Scene& scene);
  void selfTest();
  std::string deviceName() const;
  float gpuMs() const;
