@@ -50,12 +50,14 @@ $('validate').onclick=async()=>{if(!engine)return;$('validate').disabled=true;$(
 function advance(dt){
  if(!(paused&&camera[14]===3))moveCamera(camera,origin,input.keys,dt,speed,drifting);if(input.keys.size||input.drag)document.body.classList.add('exploring');if(!paused)camera[5]+=dt;
 }
+function advanceTo(now){
+ const dt=Math.min(.1,Math.max(0,(now-last)/1000));last=Math.max(last,now);advance(dt);
+}
 async function loop(now){
  if(!running)return;
  try{
-  const dt=Math.min(.1,(now-last)/1000);last=now;
-  if(document.hidden){requestAnimationFrame(loop);return;}
-  advance(dt);
+  if(document.hidden){last=performance.now();requestAnimationFrame(loop);return;}
+  advanceTo(performance.now());
   if(!gpuActive){
    startup?.frame(camera,origin);
    $('position').textContent='CELL '+origin[0].toLocaleString()+' / '+origin[1].toLocaleString();$('altitude').textContent='ALTITUDE '+Math.round(camera[1])+' M · SEED '+origin[2];
@@ -84,10 +86,12 @@ try{
  if(crossOriginIsolated && typeof SharedArrayBuffer!=='undefined' && url.searchParams.get('startup')!=='gpu'){
   previewCanvas=document.createElement('canvas');previewCanvas.id='startup-preview';previewCanvas.setAttribute('aria-hidden','true');canvas.after(previewCanvas);
   startup=new WasmStartup(previewCanvas,{
+   beforeFrame:()=>advanceTo(performance.now()),
+   isActive:()=>running&&!gpuActive&&!document.hidden,
    onFrame:data=>{
     if(!startupFirst){$('quality').options[0].textContent='Auto · 20 FPS (CPU)';startupFirst=true;document.body.dataset.backend='wasm';document.body.dataset.previewReady='true';$('loading').classList.add('done');}
     $('timings').textContent=Object.entries(data.timings||{}).map(([name,ms])=>name+': '+ms.toFixed(2)+' ms').join('\n')+'\nCPU frame: '+data.ms.toFixed(2)+' ms';
-    $('fps').textContent=Math.round(1000/data.ms)+' FPS';$('resolution').textContent=data.width+' × '+data.height+' / CPU'+(data.threads?' '+data.threads+' threads':'')+(data.checkerboard?' · checkerboard':'')+(data.nis?' · NIS 2×':'')+(url.searchParams.get('startup')==='cpu'?'':' · preparing GPU');
+    $('fps').textContent=Math.round(1000/(data.frameIntervalMs||data.ms))+' FPS';$('resolution').textContent=data.width+' × '+data.height+' / CPU'+(data.threads?' '+data.threads+' threads':'')+(data.checkerboard?' · checkerboard':'')+(data.nis?' · NIS 2×':'')+(url.searchParams.get('startup')==='cpu'?'':' · preparing GPU');
    },
    onError:message=>{console.warn('WASM startup:',message);toast('CPU preview unavailable · preparing GPU');}
   });

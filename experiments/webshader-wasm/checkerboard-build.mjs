@@ -5,14 +5,19 @@ import path from 'node:path';
 // CPU dispatch adaptation after WebShader code generation. CUDA bodies and ABI
 // remain unchanged. C[27] selects full coverage (0) or diagonal phase (1/2).
 export async function compileCheckerboard(source,specs,{outDir}){
- const {cpp,kernels}=await emitThreaded(source,specs);
- const entries=new Set(['tracePrimary','traceVegetation','reflectOcean','shadeOcean']);
+ const tile=8;
+ const renderEntries=new Set(['tracePrimary','traceVegetation','reflectOcean','shadeOcean']);
+ const {cpp,kernels}=await emitThreaded(source,specs.map(s=>renderEntries.has(s.entry)?{...s,workgroupSize:[tile,tile,1]}:s));
  const adapted=cpp.split('\n').map(line=>{
   const entry=/^extern "C" int cw_(\w+)\(/.exec(line)?.[1];
-  if(!entries.has(entry))return line;
-  const call=entry+'(';const at=line.lastIndexOf(call);
-  if(at<0)throw Error('Missing CPU wrapper '+entry);
-  return line.slice(0,at)+'if(C[27]<1 || ((blockIdx.x*blockDim.x+threadIdx.x+blockIdx.y*blockDim.y+threadIdx.y)&1)==(unsigned)(C[27]-1))'+line.slice(at);
+  if(!renderEntries.has(entry))return line;
+  const count=tile*tile;
+  const loop=`for(unsigned lane=0;lane<${count};lane++){threadIdx={lane%${tile},(lane/${tile})%${tile},lane/${count}};`;
+  if(!line.includes(loop))throw Error('Missing CPU lane loop '+entry);
+  // Compact lane numbers map directly to the selected diagonal pair. No
+  // inactive pixel iteration or per-pixel parity branch reaches the kernel.
+  return line.replace(loop,`const bool checker=C[27]>=1;const unsigned phase=checker?(unsigned)(C[27]-1):0;for(unsigned lane=0;lane<(checker?${count/2}:${count});lane++){const unsigned row=checker?lane/${tile/2}:lane/${tile};threadIdx={checker?(lane%${tile/2})*2+((row+phase)&1):lane%${tile},row,0};`);
+
  }).join('\n');
  await mkdir(outDir,{recursive:true});const file=path.join(outDir,'world.cpp');await writeFile(file,adapted);
  const exports=['_malloc','_free','_cw_init','_cw_shutdown','_cw_worker_groups',...kernels.map(k=>'_cw_'+k.entry)];

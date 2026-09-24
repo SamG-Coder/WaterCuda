@@ -1,0 +1,5 @@
+import {readFile} from 'node:fs/promises';import {pathToFileURL} from 'node:url';import path from 'node:path';import {createHash} from 'node:crypto';
+import {ThreadedProgram,WasmWorld} from '../experiments/webshader-wasm/threaded-runtime.js';
+const folder=process.argv[2]||'experiments/webshader-wasm/generated',base=pathToFileURL(path.resolve(folder)+'/'),create=(await import(new URL('world.mjs',base))).default;
+const abi=JSON.parse(await readFile(new URL('world.abi.json',base))),p=new ThreadedProgram(await create({wasmBinary:await readFile(new URL('world.wasm',base))}),abi,8);
+try{const w=new WasmWorld(p,257,145),c=new Float32Array(40),o=new Int32Array([0,0,884,0]);c.set([1850,25,1250,.15,-.3,3,1,-.7,22,1,0,1,1.5,1,0,0]);w.frame(c,o,true);const hash=createHash('sha256');let times=[];for(let i=0;i<60;i++){c[5]+=.05;c[3]+=.0002;const r=w.frame(c,o,true);hash.update(r.pixels);if(i>=10)times.push(r.ms);}times.sort((a,b)=>a-b);console.log(JSON.stringify({folder,median:times[25],mean:times.reduce((a,b)=>a+b)/times.length,p95:times[47],hash:hash.digest('hex')}));}finally{p.dispose();}

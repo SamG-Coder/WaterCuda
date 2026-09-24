@@ -36,7 +36,7 @@ export class WasmWorld{
   this.run('updateShip',[1,1,1]);if(C[14]>=3)this.run('stepShipWater',[16,16,1]);
   for(const k of ['tracePrimary','traceVegetation','reflectOcean','shadeOcean']){this.progress(k);
    if(k==='shadeOcean'&&checkerboard&&!reset){const a=this.p.module.HEAPF32,base=this.b.Reflection.ptr/4;for(let y=0;y<this.height;y++)for(let x=0;x<this.width;x++)if(((x+y)&1)!==this.phase)a[base+(y*this.width+x)*4+3]=-1;}
-   this.run(k,[Math.ceil(this.width/8),Math.ceil(this.height/8),1]);}
+   const wg=this.p.kernels.get(k).workgroupSize;this.run(k,[Math.ceil(this.width/wg[0]),Math.ceil(this.height/wg[1]),1]);}
   let resolved;
   if(checkerboard){
    const before=performance.now(),heap=this.p.module.HEAPU8.buffer,length=this.width*this.height*4;
