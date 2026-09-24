@@ -65,9 +65,11 @@ struct Viewer {
    if(!paused){c[29]=c[16];c[30]=c[17];c[31]=c[18];c[26]=float(dt);float immersed=std::clamp(-c[17]/8,0.f,1.f);float targetSpeed=forward*float(speed)/(1+immersed*(2+float(speed)*.035f))*(keys[VK_SHIFT]?3:1)*(keys['Z']?.2f:1);
     c[24]+=(targetSpeed-c[24])*(1-std::exp(-float(dt)*(forward?1.8f:1.15f)));
     c[32]+=side*float(dt)*.65f;float turn=std::remainder(c[32]-c[19],6.2831853f);c[19]+=std::clamp(turn*(1-std::exp(-float(dt)*4)),-float(dt)*.8f,float(dt)*.8f);
+    bool surfaceAssist=!locked&&!steeringDrag&&std::abs(c[17])<3;
+    if(surfaceAssist)c[33]=0;
     float pitchTarget=std::abs(c[33])<.035f?0:std::clamp(c[33],-1.f,1.f);c[25]+=(pitchTarget-c[25])*(1-std::exp(-float(dt)*3));
     if(locked||steeringDrag){float delta=std::remainder(c[19]-c[3],6.2831853f);c[3]+=delta*(1-std::exp(-float(dt)*3));c[4]+=(c[25]-.18f-c[4])*(1-std::exp(-float(dt)*3));}float velocity=c[24];
-    float step=velocity*float(dt);c[16]+=std::sin(c[19])*std::cos(c[25])*step;c[18]+=std::cos(c[19])*std::cos(c[25])*step;c[17]=std::clamp(c[17]+std::sin(c[25])*step,-110.f,12000.f);c[5]+=float(dt);
+    float step=velocity*float(dt);c[16]+=std::sin(c[19])*std::cos(c[25])*step;c[18]+=std::cos(c[19])*std::cos(c[25])*step;c[17]=std::clamp(surfaceAssist?c[17]*std::exp(-float(dt)*3):c[17]+std::sin(c[25])*step,-110.f,12000.f);c[5]+=float(dt);
    }
    float pitch=c[4];c[0]=c[16]-std::sin(c[3])*std::cos(pitch)*c[23];c[1]=c[17]+10-std::sin(pitch)*c[23];c[2]=c[18]-std::cos(c[3])*std::cos(pitch)*c[23];scene.rebase();return;
   }

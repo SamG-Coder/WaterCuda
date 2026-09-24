@@ -16,11 +16,13 @@ export function moveCamera(camera,origin,keys,dt,speed,drifting=false){
   camera[32]+=side*dt*.65;
   const turn=Math.atan2(Math.sin(camera[32]-camera[19]),Math.cos(camera[32]-camera[19]));
   camera[19]+=Math.max(-dt*.8,Math.min(dt*.8,turn*(1-Math.exp(-dt*4))));
+  const surfaceAssist=camera[34]<.5&&Math.abs(camera[17])<3;
+  if(surfaceAssist)camera[33]=0;
   const pitchTarget=Math.abs(camera[33])<.035?0:Math.max(-1,Math.min(1,camera[33]));camera[25]+=(pitchTarget-camera[25])*(1-Math.exp(-dt*3));
   if(camera[34]>.5){const yawDelta=Math.atan2(Math.sin(camera[19]-camera[3]),Math.cos(camera[19]-camera[3]));camera[3]+=yawDelta*(1-Math.exp(-dt*3));camera[4]+=(camera[25]-.18-camera[4])*(1-Math.exp(-dt*3));}
   const velocity=camera[24];
   const step=velocity*dt;camera[16]+=Math.sin(camera[19])*Math.cos(camera[25])*step;camera[18]+=Math.cos(camera[19])*Math.cos(camera[25])*step;
-  camera[17]=Math.max(-110,Math.min(12000,camera[17]+Math.sin(camera[25])*step));
+  camera[17]=Math.max(-110,Math.min(12000,surfaceAssist?camera[17]*Math.exp(-dt*3):camera[17]+Math.sin(camera[25])*step));
   const distance=camera[23],pitch=camera[4];camera[0]=camera[16]-Math.sin(camera[3])*Math.cos(pitch)*distance;camera[1]=camera[17]+10-Math.sin(pitch)*distance;camera[2]=camera[18]-Math.cos(camera[3])*Math.cos(pitch)*distance;rebase(camera,origin);return;
  }
  const v=flightVector(camera[3],camera[4],forward,side,vertical);
@@ -43,7 +45,7 @@ export class FlightInput{
   document.addEventListener('pointerlockchange',()=>{clear();onLock(document.pointerLockElement===canvas);});
   document.addEventListener('pointerlockerror',()=>onLock(false));
   canvas.addEventListener('pointerdown',e=>{canvas.focus({preventScroll:true});if(document.pointerLockElement===canvas)return;this.drag={x:e.clientX,y:e.clientY,button:e.button};camera[34]=e.button===2?1:0;canvas.setPointerCapture(e.pointerId);});
-  canvas.addEventListener('pointerup',()=>{this.drag=null;camera[34]=0;});canvas.addEventListener('pointercancel',clear);canvas.addEventListener('lostpointercapture',()=>this.drag=null);
+  canvas.addEventListener('pointerup',()=>{this.drag=null;camera[34]=0;});canvas.addEventListener('pointercancel',clear);canvas.addEventListener('lostpointercapture',()=>{this.drag=null;camera[34]=0;});
   document.addEventListener('mousemove',e=>{
    let dx=0,dy=0;if(document.pointerLockElement===canvas){dx=e.movementX;dy=e.movementY;}
    else if(this.drag){dx=e.clientX-this.drag.x;dy=e.clientY-this.drag.y;this.drag={x:e.clientX,y:e.clientY,button:this.drag.button};}else return;

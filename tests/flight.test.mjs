@@ -28,7 +28,7 @@ test('ship accelerates smoothly, orbit is independent, steering turns gradually 
  moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[24]>0&&c[24]<1);assert.equal(c[17],0);
  for(let i=0;i<60;i++)moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[24]>20);
  const heading=c[19];c[3]=2;c[4]=-.8;moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.equal(c[19],heading);assert.equal(c[25],0);assert.equal(c[23],100);
- c[32]=1;c[33]=.3;moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[19]>0&&c[19]<.02);assert.ok(c[25]>0&&c[25]<.03);
+ c[34]=1;c[32]=1;c[33]=.3;moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[19]>0&&c[19]<.02);assert.ok(c[25]>0&&c[25]<.03);
  const velocity=c[24];moveCamera(c,o,new Set(),1/60,25);assert.ok(c[24]>0&&c[24]<velocity);
 });
 test('underwater ship drag slows forward motion and V preserves parked ship while free flying',()=>{
@@ -39,4 +39,12 @@ test('underwater ship drag slows forward motion and V preserves parked ship whil
 
 test('neutral W and tiny mouse noise do not create lift',()=>{
  for(const pitch of [0,.02,-.02]){const c=new Float32Array(40),o=new Int32Array(4);c[14]=3;c[16]=c[18]=650;c[23]=64;c[33]=pitch;for(let i=0;i<120;i++)moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.equal(c[17],0);assert.equal(c[25],0);}
+});
+
+test('released steering restores surface trim while W continues forward',()=>{
+ const c=new Float32Array(40),o=new Int32Array(4);c[14]=3;c[23]=100;c[17]=-.5;c[25]=c[33]=-.6;c[24]=25;
+ for(let i=0;i<180;i++){const depth=c[17];moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[17]>=depth);}
+ assert.ok(Math.abs(c[17])<.001);assert.ok(Math.abs(c[25])<.001);assert.equal(c[33],0);assert.ok(c[18]>60);
+ c[34]=1;c[33]=-.6;for(let i=0;i<30;i++)moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[17]<-1);
+ c[34]=0;c[17]=-10;c[25]=c[33]=-.4;moveCamera(c,o,new Set(['KeyW']),1/60,25);assert.ok(c[17]<-10);
 });
