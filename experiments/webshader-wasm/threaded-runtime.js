@@ -40,7 +40,7 @@ export class WasmWorld{
   let resolved;
   if(checkerboard){
    const before=performance.now(),heap=this.p.module.HEAPU8.buffer,length=this.width*this.height*4;
-   resolved=this.resolve.resolve(new Uint8Array(heap,this.b.Pixels.ptr,length),new Float32Array(heap,this.b.Hit.ptr,length),new Float32Array(heap,this.b.Surface.ptr,length),this.width,this.height,this.phase,{reset,moved});
+   resolved=this.resolve.resolve(new Uint8Array(heap,this.b.Pixels.ptr,length),new Float32Array(heap,this.b.Hit.ptr,length),new Float32Array(heap,this.b.Surface.ptr,length),this.width,this.height,this.phase,{reset,moved,camera:new Float32Array(this.p.read(this.b.C).buffer)});
    this.times.checkerboardResolve=performance.now()-before;
   }
   const phase=this.phase;this.phase^=1;

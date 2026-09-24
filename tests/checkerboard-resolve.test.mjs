@@ -15,3 +15,19 @@ test('resolve preserves material edges and rejects history on motion and resize'
  f.p.fill(0);for(let b=3;b<f.p.length;b+=4)f.p[b]=255;const moved=r.resolve(f.p,f.hit,f.n,f.w,f.h,0,{moved:true});assert.equal(moved[0],0);
  const small=fixture(1,1);assert.deepEqual(r.resolve(small.p,small.hit,small.n,1,1,0),small.p);
 });
+import {projectHistory} from '../experiments/webshader-wasm/history-projection.js';
+test('history projection matches camera rays and one-pixel camera translation',()=>{
+ const w=8,h=6,n=w*h,d=new Float32Array(n),m=new Float32Array(n).fill(1),v=new Uint8Array(n).fill(1),idx=new Int32Array(n),dist=new Float32Array(n),c=new Float32Array(40);
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){const sx=(x+.5-w/2)/h*1.05,sy=-(y+.5-h/2)/h*1.05;d[y*w+x]=10*Math.sqrt(1+sx*sx+sy*sy);}
+ projectHistory(c,c,d,m,v,w,h,idx,dist);for(let i=0;i<n;i++)assert.equal(idx[i],i);
+ const next=c.slice();next[0]=10*1.05/h;projectHistory(c,next,d,m,v,w,h,idx,dist);
+ for(let y=0;y<h;y++)for(let x=0;x<w-1;x++)assert.equal(idx[y*w+x],y*w+x+1);
+ m.fill(2);projectHistory(c,next,d,m,v,w,h,idx,dist);assert.ok(idx.every(i=>i===-1));
+});
+test('reprojection accepts matching static geometry and rejects disoccluded depths',()=>{
+ const f=fixture(),r=new CheckerboardResolve(),camera=new Float32Array(40);for(let b=1;b<f.hit.length;b+=4)f.hit[b]=1;
+ r.resolve(f.p,f.hit,f.n,f.w,f.h,0,{reset:true,camera});
+ r.resolve(f.p,f.hit,f.n,f.w,f.h,1,{moved:true,camera});assert.ok(r.reprojected>0);
+ for(let b=0;b<f.hit.length;b+=4)f.hit[b]=30;
+ r.resolve(f.p,f.hit,f.n,f.w,f.h,0,{moved:true,camera});assert.equal(r.reprojected,0);
+});

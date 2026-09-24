@@ -1,11 +1,15 @@
+import {projectHistory} from './history-projection.js';
 // Small geometry-guided temporal resolve inspired by denoising techniques.
 // This is not NVIDIA NRD. Raw checkerboard samples remain untouched.
 const AX=[-1,1,0,0],AY=[0,0,-1,1],DX=[-1,1,-1,1],DY=[-1,-1,1,1];
 export class CheckerboardResolve {
- resolve(pixels,hit,surface,width,height,phase,{reset=false,moved=false}={}){
+ resolve(pixels,hit,surface,width,height,phase,{reset=false,moved=false,camera=null}={}){
   const length=width*height*4;
-  if(this.width!==width||this.height!==height){this.width=width;this.height=height;this.history=new Uint8Array(length);this.output=new Uint8Array(length);reset=true;}
+  if(this.width!==width||this.height!==height){this.width=width;this.height=height;this.history=new Uint8Array(length);this.output=new Uint8Array(length);this.depth=new Float32Array(length/4);this.material=new Float32Array(length/4);this.normals=new Float32Array(length);this.valid=new Uint8Array(length/4);this.indices=new Int32Array(length/4);this.distances=new Float32Array(length/4);reset=true;}
   const out=this.output,history=this.history;
+  this.reprojected=0;
+  const reproject=!reset&&moved&&camera&&this.camera;
+  if(reproject)projectHistory(this.camera,camera,this.depth,this.material,this.valid,width,height,this.indices,this.distances);
   if(reset){out.set(pixels);}else{
    for(let y=0;y<height;y++)for(let x=0;x<width;x++){
     const b=(y*width+x)*4,fresh=((x+y)&1)===phase;
@@ -30,13 +34,22 @@ export class CheckerboardResolve {
     // Preserve fresh detail. Water holes primarily use this frame, even when
     // the camera is still; waves/reflections do not share terrain motion.
     if(fresh){const mix=dynamic?.12:.025;r=pixels[b]*(1-mix)+r*mix;g=pixels[b+1]*(1-mix)+g*mix;bl=pixels[b+2]*(1-mix)+bl*mix;}
-    const disagreement=Math.max(Math.abs(history[b]-r),Math.abs(history[b+1]-g),Math.abs(history[b+2]-bl));
-    const trust=moved?0:(fresh?.12:(dynamic?.08:.65))*Math.max(0,1-disagreement/40);
-    out[b]=Math.round(r*(1-trust)+Math.max(loR,Math.min(hiR,history[b]))*trust);
-    out[b+1]=Math.round(g*(1-trust)+Math.max(loG,Math.min(hiG,history[b+1]))*trust);
-    out[b+2]=Math.round(bl*(1-trust)+Math.max(loB,Math.min(hiB,history[b+2]))*trust);out[b+3]=255;
+    let hb=b,historyValid=!moved;
+    if(reproject){const source=this.indices[b/4];if(source>=0){
+     const a=source*4,normal=this.normals[a]*surface[guide]+this.normals[a+1]*surface[guide+1]+this.normals[a+2]*surface[guide+2];
+     if(this.material[source]===material&&Math.abs(this.distances[b/4]-depth)<Math.max(.25,depth*.025)&&normal>.9){hb=a;historyValid=true;this.reprojected++;}
+    }}
+    const disagreement=Math.max(Math.abs(history[hb]-r),Math.abs(history[hb+1]-g),Math.abs(history[hb+2]-bl));
+    const trust=!historyValid?0:(fresh?.12:(dynamic?.08:.65))*Math.max(0,1-disagreement/40);
+    out[b]=Math.round(r*(1-trust)+Math.max(loR,Math.min(hiR,history[hb]))*trust);
+    out[b+1]=Math.round(g*(1-trust)+Math.max(loG,Math.min(hiG,history[hb+1]))*trust);
+    out[b+2]=Math.round(bl*(1-trust)+Math.max(loB,Math.min(hiB,history[hb+2]))*trust);out[b+3]=255;
    }
   }
+  // Retain geometry only for real samples; filled holes are never treated as
+  // measured depth on the next frame. Rebase/resize reset is owned by the host.
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=y*width+x,b=i*4;this.valid[i]=reset||((x+y)&1)===phase?1:0;if(this.valid[i]){this.depth[i]=hit[b];this.material[i]=hit[b+1];this.normals[b]=surface[b];this.normals[b+1]=surface[b+1];this.normals[b+2]=surface[b+2];}}
+  this.camera=camera?camera.slice():null;
   this.output=history;this.history=out;return out;
  }
 }
