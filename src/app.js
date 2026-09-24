@@ -6,7 +6,8 @@ import {WasmStartup} from './wasm-startup.js';
 const $=id=>document.getElementById(id),canvas=$('view');
 const camera=new Float32Array([340,160,100,-0.05,-0.10,0,1,-0.7,0.7,1,0,1,1.5,1,0,0,...new Array(24).fill(0)]);
 const origin=new Int32Array([0,0,42,0]);
-let engine,paused=false,drifting=false,speed=60,resizing=true,running=false,last=performance.now(),frames=0,lastStats=last,autoWidth=960,lastAdapt=0;
+const mobileProfile=/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)||Math.min(screen.width,screen.height)<700;
+let engine,paused=false,drifting=false,speed=60,resizing=true,running=false,last=performance.now(),frames=0,lastStats=last,autoWidth=mobileProfile?512:960,lastAdapt=0;
 let toastTimer;
 let startup,previewCanvas,gpuActive=false,startupFirst=false;
 function toast(message){$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),3500);}
@@ -65,7 +66,7 @@ async function loop(now){
    $('flightStatus').dataset.position=[origin[0],origin[1],...Array.from(camera.slice(0,5))].join(',');
    requestAnimationFrame(loop);return;
   }
-  if($('quality').value==='auto'&&now-lastAdapt>2000&&engine.gpuMs){lastAdapt=now;const ms=engine.gpuMs;let next=autoWidth;if(ms>18)next=Math.max(512,Math.floor(autoWidth*Math.max(.8,Math.sqrt(15/ms))/64)*64);else if(ms<11)next=Math.min(1280,autoWidth+64);if(next!==autoWidth){autoWidth=next;resizing=true;}}
+  if($('quality').value==='auto'&&now-lastAdapt>2000&&engine.gpuMs){lastAdapt=now;const ms=engine.gpuMs,targetMs=mobileProfile?30:15,minWidth=mobileProfile?320:512,maxWidth=mobileProfile?640:1280;let next=autoWidth;if(ms>targetMs*1.12)next=Math.max(minWidth,Math.floor(autoWidth*Math.max(.78,Math.sqrt(targetMs/ms))/64)*64);else if(ms<targetMs*.72)next=Math.min(maxWidth,autoWidth+64);if(next!==autoWidth){autoWidth=next;resizing=true;}}
   if(resizing){resizing=false;const target=$('quality').value==='auto'?autoWidth:Number($('quality').value),{width,height}=renderSize(innerWidth,innerHeight,target);await engine.resize(width,height);$('resolution').textContent=width+' × '+height+' / WEBGPU';}
   if(engine.frame(camera,origin))frames++;
   if(now-lastStats>1000){$('fps').textContent=Math.round(frames*1000/(now-lastStats))+' FPS';frames=0;lastStats=now;
@@ -79,7 +80,8 @@ async function loop(now){
 try{
  const url=new URL(location.href);if(url.searchParams.has('seed')){origin[2]=parseSeed(url.searchParams.get('seed'));$('seed').value=origin[2];}
  const weatherModes={auto:0,clear:1,overcast:2,rain:3,storm:4};camera[15]=weatherModes[url.searchParams.get('weather')]??0;$('weather').value=String(camera[15]);
- window.waterCuda={get engine(){return engine;},camera,origin,preset,setLook,setRenderLoop(on){if(on&&!running){running=true;last=performance.now();requestAnimationFrame(loop);}else if(!on)running=false;}};
+ if(mobileProfile){camera[9]=0;camera[13]=0;camera[15]=1;$('reflections').checked=false;$('reflections').disabled=true;$('caustics').checked=false;$('caustics').disabled=true;$('weather').value='1';$('weather').disabled=true;$('quality').innerHTML='<option value="auto" selected>Auto · Mobile 30 FPS</option><option value="384">Battery</option><option value="512">Balanced</option><option value="640">Quality</option>';for(const b of document.querySelectorAll('[data-view="reef"],[data-view="coral"],[data-view="family"],[data-view="ship"],[data-view="scrub"]'))b.hidden=true;document.body.dataset.profile='mobile';}
+ window.waterCuda={get engine(){return engine;},camera,origin,mobileProfile,preset,setLook,setRenderLoop(on){if(on&&!running){running=true;last=performance.now();requestAnimationFrame(loop);}else if(!on)running=false;}};
  setLook(['coastal','golden','swell'].includes(url.searchParams.get('look'))?url.searchParams.get('look'):'coastal');
  if(url.searchParams.get('clock')!=='manual'){const hour=Number(url.searchParams.get('hour')??12);selectHour(Number.isFinite(hour)?hour:12);}else $('daycycle').checked=false;
  preset(['coast','aerial','water','shore','scrub','bars','reef','coral','family','ship'].includes(url.searchParams.get('view'))?url.searchParams.get('view'):'coast');
@@ -105,11 +107,11 @@ try{
   if(!await startup.first)throw Error('CPU renderer failed to initialize');
   document.body.dataset.ready='true';
  }else{
- engine=await new Engine().init(canvas,message=>{$('status').textContent=message;$('timings').textContent='Preparing GPU: '+message;});
+ engine=await new Engine().init(canvas,message=>{$('status').textContent=message;$('timings').textContent='Preparing GPU: '+message;},{mobile:mobileProfile});
  const size=renderSize(innerWidth,innerHeight,$('quality').value==='auto'?autoWidth:Number($('quality').value));
  await engine.resize(size.width,size.height);engine.frame(camera,origin);await engine.runtime.idle();
  if(engine.errors.length)throw Error(engine.errors.join('\n'));
- gpuActive=true;$('quality').options[0].textContent='Auto · 60 FPS';startup?.stop();previewCanvas?.remove();document.body.dataset.backend='webgpu';document.body.dataset.ready='true';$('loading').classList.add('done');
+ gpuActive=true;$('quality').options[0].textContent=mobileProfile?'Auto · Mobile 30 FPS':'Auto · 60 FPS';startup?.stop();previewCanvas?.remove();document.body.dataset.backend='webgpu';document.body.dataset.ready='true';$('loading').classList.add('done');
  engine.onError=e=>{running=false;$('loading').classList.remove('done');$('status').textContent=String(e.message||e);};
  if(url.searchParams.has('test')){document.querySelector('details').open=true;$('validate').click();}
  }
