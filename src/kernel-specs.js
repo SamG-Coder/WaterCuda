@@ -1,5 +1,8 @@
 export const UNITS=['common','weather','terrain','terrain-cache','shrubs','ocean','ship','render'];
+export const MOBILE_UNITS=['common','terrain','terrain-cache','ocean','mobile-render'];
 export const SPECS=[
+ {entry:'traceMobile',file:'mobile-render',workgroupSize:[8,8,1],dependencies:MOBILE_UNITS},
+ {entry:'shadeMobile',file:'mobile-render',workgroupSize:[8,8,1],dependencies:MOBILE_UNITS},
  {entry:'cacheTerrain',file:'terrain-cache',workgroupSize:[8,8,1],dependencies:['common','terrain','terrain-cache']},
  {entry:'mipTerrain',file:'terrain-cache',workgroupSize:[8,8,1],dependencies:['common','terrain','terrain-cache']},
  {entry:'generateShrubAtlas',file:'shrubs',workgroupSize:[8,8,1],dependencies:['common','weather','terrain','shrubs']},
