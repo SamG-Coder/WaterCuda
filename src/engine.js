@@ -7,7 +7,7 @@ export class Engine{
   this.errors=[];this.runtime=await GpuRuntime.create({onError:e=>{this.errors.push(String(e.message||e));this.onError?.(e);}});
   this.device=this.runtime.device;this.canvas=canvas;this.context=canvas.getContext('webgpu');
   this.loader=new KernelLoader(this.runtime,event=>{if(event.type==='done')console.info('[WaterCuda pipeline]',event.entry,event.timing);progress(event.entry+' · '+event.message);});
-  const kernelNames=this.mobile?['cacheTerrain','mipTerrain','cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','tracePrimary','shadeOcean']:['cacheTerrain','mipTerrain','generateShrubAtlas','mipShrubAtlas','cacheShrubs','cacheReef','cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','updateShip','stepShipWater','tracePrimary','traceVegetation','reflectOcean','shadeOcean'];this.kernels={};await Promise.all(kernelNames.map(async name=>{this.kernels[name]=await this.loader.load(name);}));
+  const kernelNames=this.mobile?['cacheTerrain','mipTerrain','cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','traceMobile','shadeMobile']:['cacheTerrain','mipTerrain','generateShrubAtlas','mipShrubAtlas','cacheShrubs','cacheReef','cacheOceanSpectrum','advanceOceanSpectrum','oceanFft','packOcean','oceanMip','updateShip','stepShipWater','tracePrimary','traceVegetation','reflectOcean','shadeOcean'];this.kernels={};await Promise.all(kernelNames.map(async name=>{this.kernels[name]=await this.loader.load(name);}));
   this.camera=this.runtime.createBuffer(160,{label:'Camera and ocean controls'});
   this.origin=this.runtime.createBuffer(16,{label:'Integer world origin and seed'});
   this.shrubs=this.runtime.createBuffer(11405990*4,{label:'Foliage, reef and terrain bounds caches'});
@@ -37,7 +37,7 @@ export class Engine{
   this.reflection=this.runtime.createBuffer(width*height*16,{label:'Per-pixel reflections'});
   this.context.configure({device:this.device,format:'rgba8unorm',usage:GPUTextureUsage.COPY_DST|GPUTextureUsage.RENDER_ATTACHMENT,alphaMode:'opaque'});
   const buffers={C:this.camera,Origin:this.origin,Shrubs:this.shrubs,Waves:this.waves,Hit:this.hit,Surface:this.surface,Reflection:this.reflection,Pixels:this.pixels};this.calls={};
-  for(const name of ['tracePrimary','traceVegetation','reflectOcean','shadeOcean']){const kernel=this.kernels[name];if(!kernel)continue;this.calls[name]=kernel.bind(Object.fromEntries(kernel.artifact.metadata.bindings.map(b=>[b.name,buffers[b.name]])),{width,height});}
+  for(const name of ['tracePrimary','traceVegetation','reflectOcean','shadeOcean','traceMobile','shadeMobile']){const kernel=this.kernels[name];if(!kernel)continue;this.calls[name]=kernel.bind(Object.fromEntries(kernel.artifact.metadata.bindings.map(b=>[b.name,buffers[b.name]])),{width,height});}
  }
  makeOceanCalls(camera,origin,waves,spectrum,ping,initial=null){return [
   [initial?this.kernels.advanceOceanSpectrum.bind({C:camera,Initial:initial,Spectrum:spectrum}):this.kernels.seedOcean.bind({C:camera,Origin:origin,Spectrum:spectrum}),[32,32,4]],
@@ -57,7 +57,7 @@ export class Engine{
   const reefState=[Math.floor(camera[0]/12),Math.floor(camera[2]/12),origin[0],origin[1],origin[2]];
   if(this.cacheReefCall&&((camera[1]<0&&camera[14]<.5)||(camera[1]<8&&camera[14]>=3))&&(!this.lastReefState||reefState.some((v,i)=>v!==this.lastReefState[i]))){this.runtime.batch().dispatch(this.cacheReefCall,[128,128]).submit();this.lastReefState=reefState;}
   const timed=!!this.queries&&!this.timingBusy&&this.frames%30===0;
-  const groups=[Math.ceil(this.width/8),Math.ceil(this.height/8)];const stages=this.mobile?[['spectrum',[]],['tracePrimary',groups],['shadeOcean',groups]]:[['spectrum',[]],['tracePrimary',groups],['traceVegetation',groups],['reflectOcean',groups],['shadeOcean',groups]];
+  const groups=[Math.ceil(this.width/8),Math.ceil(this.height/8)];const stages=this.mobile?[['spectrum',[]],['traceMobile',groups],['shadeMobile',groups]]:[['spectrum',[]],['tracePrimary',groups],['traceVegetation',groups],['reflectOcean',groups],['shadeOcean',groups]];
   let batch=this.runtime.batch(timed?{timestampWrites:{querySet:this.queries,beginningOfPassWriteIndex:0,endOfPassWriteIndex:1}}:{});
   for(let i=0;i<stages.length;i++){if(i&&timed){batch.submit();batch=this.runtime.batch({timestampWrites:{querySet:this.queries,beginningOfPassWriteIndex:i*2,endOfPassWriteIndex:i*2+1}});}const [name,groups]=stages[i];if(i===0){if(this.lastSpectrumSeed!==origin[2]){batch.dispatch(this.cacheSpectrumCall,[32,32,4]);this.lastSpectrumSeed=origin[2];this.spectrumBuilds++;}
     const state=[this.mobile?Math.floor(camera[5]*15)/15:camera[5],camera[6],origin[2],camera[15]];if(!this.lastOceanState||state.some((v,i)=>v!==this.lastOceanState[i])){for(const [call,g] of this.oceanCalls)batch.dispatch(call,g);this.lastOceanState=state;this.oceanUpdates++;}if(this.shipCall){batch.dispatch(this.shipCall,[1]);if(camera[14]>=3)batch.dispatch(this.shipWaterCall,[16,16]);}}else {batch.dispatch(this.calls[name],groups);}}
